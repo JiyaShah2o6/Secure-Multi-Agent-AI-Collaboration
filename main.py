@@ -1,14 +1,30 @@
-from app.agents.data_agent import DataAgent
+from app.agents.support_agent import SupportAgent
 
 
-agent_b = DataAgent()
+agent_a = SupportAgent()
 
-request = {
-    "customer_id": "C101",
-    "requested_fields": ["complaint_status"]
-}
 
-response = agent_b.handle_request(request)
+# Test 1: Authorized request
+print("TEST 1 - Authorized Request")
 
-print("Agent B Response:")
+response = agent_a.request_customer_data(
+    customer_id="C101",
+    requested_fields=["complaint_status"],
+    purpose="Resolve customer complaint"
+)
+
+print("Response:")
+print(response)
+
+
+# Test 2: Unauthorized request
+print("\nTEST 2 - Unauthorized Request")
+
+response = agent_a.request_customer_data(
+    customer_id="C101",
+    requested_fields=["bank_account"],
+    purpose="Resolve customer complaint"
+)
+
+print("Response:")
 print(response)
