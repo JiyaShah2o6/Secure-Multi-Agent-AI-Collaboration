@@ -1,4 +1,4 @@
-# Permissions for Agent A (Support Agent)
+# Role-based permissions for agents
 
 AGENT_PERMISSIONS = {
     "AgentA": {
@@ -10,16 +10,22 @@ AGENT_PERMISSIONS = {
 }
 
 
+def get_allowed_fields(agent_name):
+    """Return the fields that an agent is allowed to access."""
+    return AGENT_PERMISSIONS.get(agent_name, set())
+
+
 def is_authorized(agent_name, requested_fields):
     """
     Check whether an agent is authorized
     to access all requested fields.
     """
 
-    allowed_fields = AGENT_PERMISSIONS.get(agent_name, set())
+    allowed_fields = get_allowed_fields(agent_name)
 
     unauthorized_fields = [
-        field for field in requested_fields
+        field
+        for field in requested_fields
         if field not in allowed_fields
     ]
 
