@@ -1,5 +1,6 @@
 from app.agents.data_agent import DataAgent
 from app.authorization.permissions import is_authorized
+from app.models.schemas import AgentRequest
 
 
 class SupportAgent:
@@ -9,13 +10,22 @@ class SupportAgent:
 
     def request_customer_data(self, customer_id, requested_fields, purpose):
 
-        # Check whether Agent A is authorized
-        authorization_result = is_authorized(
-            self.name,
-            requested_fields
+        # Create a standardized request
+        request = AgentRequest(
+            sender=self.name,
+            receiver="AgentB",
+            customer_id=customer_id,
+            requested_fields=requested_fields,
+            purpose=purpose
         )
 
-        # Stop the request if Agent A is not authorized
+        # Check authorization
+        authorization_result = is_authorized(
+            request.sender,
+            request.requested_fields
+        )
+
+        # Reject unauthorized request
         if not authorization_result["authorized"]:
             return {
                 "status": "unauthorized",
@@ -23,19 +33,16 @@ class SupportAgent:
                 "unauthorized_fields": authorization_result["unauthorized_fields"]
             }
 
-        # Create the request
-        request = {
-            "sender": self.name,
-            "receiver": "AgentB",
-            "customer_id": customer_id,
-            "requested_fields": requested_fields,
-            "purpose": purpose
-        }
-
         print(f"{self.name} sending request to AgentB:")
         print(request)
 
+        # Convert request to dictionary for Agent B
+        request_data = {
+            "customer_id": request.customer_id,
+            "requested_fields": request.requested_fields
+        }
+
         # Send request to Agent B
-        response = self.data_agent.handle_request(request)
+        response = self.data_agent.handle_request(request_data)
 
         return response
