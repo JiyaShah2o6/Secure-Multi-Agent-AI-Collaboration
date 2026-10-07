@@ -1,7 +1,8 @@
 from app.agents.data_agent import DataAgent
 from app.authorization.permissions import is_authorized
-from app.models.schemas import AgentRequest
 from app.authorization.data_minimization import check_data_minimization
+from app.models.schemas import AgentRequest, AgentResponse
+
 
 class SupportAgent:
     def __init__(self):
@@ -27,13 +28,15 @@ class SupportAgent:
 
         # Reject unauthorized request
         if not authorization_result["authorized"]:
-            return {
-                "status": "unauthorized",
-                "message": "Agent A is not authorized to access the requested fields.",
-                "unauthorized_fields": authorization_result["unauthorized_fields"]
-            }
+            return AgentResponse(
+                status="unauthorized",
+                data={
+                    "unauthorized_fields": authorization_result["unauthorized_fields"]
+                },
+                message="Agent A is not authorized to access the requested fields."
+            )
 
-            # Check whether requested fields are necessary for the purpose
+        # Check whether requested fields are necessary
         minimization_result = check_data_minimization(
             request.purpose,
             request.requested_fields
@@ -41,11 +44,13 @@ class SupportAgent:
 
         # Reject request if it contains unnecessary fields
         if not minimization_result["valid"]:
-            return {
-                "status": "data_minimization_violation",
-                "message": minimization_result["message"],
-                "unnecessary_fields": minimization_result["unnecessary_fields"]
-            }
+            return AgentResponse(
+                status="data_minimization_violation",
+                data={
+                    "unnecessary_fields": minimization_result["unnecessary_fields"]
+                },
+                message=minimization_result["message"]
+            )
 
         print(f"{self.name} sending request to AgentB:")
         print(request)
