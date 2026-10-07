@@ -1,7 +1,7 @@
 from app.agents.data_agent import DataAgent
 from app.authorization.permissions import is_authorized
 from app.models.schemas import AgentRequest
-
+from app.authorization.data_minimization import check_data_minimization
 
 class SupportAgent:
     def __init__(self):
@@ -31,6 +31,20 @@ class SupportAgent:
                 "status": "unauthorized",
                 "message": "Agent A is not authorized to access the requested fields.",
                 "unauthorized_fields": authorization_result["unauthorized_fields"]
+            }
+
+            # Check whether requested fields are necessary for the purpose
+        minimization_result = check_data_minimization(
+            request.purpose,
+            request.requested_fields
+        )
+
+        # Reject request if it contains unnecessary fields
+        if not minimization_result["valid"]:
+            return {
+                "status": "data_minimization_violation",
+                "message": minimization_result["message"],
+                "unnecessary_fields": minimization_result["unnecessary_fields"]
             }
 
         print(f"{self.name} sending request to AgentB:")
