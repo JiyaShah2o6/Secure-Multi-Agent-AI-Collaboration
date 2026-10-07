@@ -1,4 +1,4 @@
-from app.agents.data_agent import DataAgent
+from app.agents.communication import AgentCommunication
 from app.authorization.permissions import is_authorized
 from app.authorization.data_minimization import check_data_minimization
 from app.models.schemas import AgentRequest, AgentResponse
@@ -7,7 +7,7 @@ from app.models.schemas import AgentRequest, AgentResponse
 class SupportAgent:
     def __init__(self):
         self.name = "AgentA"
-        self.data_agent = DataAgent()
+        self.communication = AgentCommunication()
 
     def request_customer_data(self, customer_id, requested_fields, purpose):
 
@@ -55,13 +55,7 @@ class SupportAgent:
         print(f"{self.name} sending request to AgentB:")
         print(request)
 
-        # Convert request to dictionary for Agent B
-        request_data = {
-            "customer_id": request.customer_id,
-            "requested_fields": request.requested_fields
-        }
-
-        # Send request to Agent B
-        response = self.data_agent.handle_request(request_data)
+        # Send request through communication layer
+        response = self.communication.send_request(request)
 
         return response
