@@ -15,20 +15,12 @@ from app.agents.support_agent import SupportAgent
 from app.data.customers import customers
 
 
-# --------------------------------------------------
-# Page configuration
-# --------------------------------------------------
-
 st.set_page_config(
     page_title="Secure Multi-Agent AI Collaboration",
     page_icon="🔐",
     layout="wide"
 )
 
-
-# --------------------------------------------------
-# Custom styling
-# --------------------------------------------------
 
 st.markdown(
     """
@@ -77,17 +69,12 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-
-# --------------------------------------------------
-# Initialize Agent A
-# --------------------------------------------------
-
 agent = SupportAgent()
 
 
-# --------------------------------------------------
-# Header
-# --------------------------------------------------
+# ---------------------------------------------------------
+# HEADER
+# ---------------------------------------------------------
 
 st.markdown(
     '<div class="main-title">🔐 Secure Multi-Agent AI Collaboration</div>',
@@ -102,9 +89,9 @@ st.markdown(
 )
 
 
-# --------------------------------------------------
-# Architecture flow
-# --------------------------------------------------
+# ---------------------------------------------------------
+# SYSTEM FLOW
+# ---------------------------------------------------------
 
 st.subheader("System Flow")
 
@@ -151,12 +138,11 @@ with flow3:
 st.divider()
 
 
-# --------------------------------------------------
-# Sidebar configuration
-# --------------------------------------------------
+# ---------------------------------------------------------
+# SIDEBAR CONFIGURATION
+# ---------------------------------------------------------
 
 st.sidebar.header("Request Configuration")
-
 
 scenario = st.sidebar.selectbox(
     "Demo Scenario",
@@ -164,7 +150,8 @@ scenario = st.sidebar.selectbox(
         "Custom Request",
         "Scenario 1 - Authorized",
         "Scenario 2 - Unauthorized",
-        "Scenario 3 - Unnecessary Data"
+        "Scenario 3 - Unnecessary Data",
+        "Scenario 4 - Token-Inefficient Request"
     ]
 )
 
@@ -182,9 +169,9 @@ purpose_options = [
 ]
 
 
-# --------------------------------------------------
-# Scenario presets
-# --------------------------------------------------
+# ---------------------------------------------------------
+# SCENARIO CONFIGURATION
+# ---------------------------------------------------------
 
 if scenario == "Scenario 1 - Authorized":
 
@@ -194,6 +181,9 @@ if scenario == "Scenario 1 - Authorized":
         "complaint_status"
     ]
 
+    token_limit = 100
+
+
 elif scenario == "Scenario 2 - Unauthorized":
 
     purpose = "Resolve customer complaint"
@@ -202,6 +192,9 @@ elif scenario == "Scenario 2 - Unauthorized":
         "bank_account"
     ]
 
+    token_limit = 100
+
+
 elif scenario == "Scenario 3 - Unnecessary Data":
 
     purpose = "Resolve customer complaint"
@@ -209,6 +202,26 @@ elif scenario == "Scenario 3 - Unnecessary Data":
     requested_fields = [
         "name"
     ]
+
+    token_limit = 100
+
+
+elif scenario == "Scenario 4 - Token-Inefficient Request":
+
+    purpose = "Resolve customer complaint"
+
+    # All three fields are authorized for Agent A
+    # and necessary for this purpose.
+    requested_fields = [
+        "customer_id",
+        "complaint_id",
+        "complaint_status"
+    ]
+
+    # Lower limit is used only to demonstrate
+    # a token-inefficient request.
+    token_limit = 10
+
 
 else:
 
@@ -236,10 +249,18 @@ else:
         default=["complaint_status"]
     )
 
+    token_limit = st.sidebar.number_input(
+        "Token Limit",
+        min_value=1,
+        max_value=500,
+        value=100,
+        step=1
+    )
 
-# --------------------------------------------------
-# Request section
-# --------------------------------------------------
+
+# ---------------------------------------------------------
+# REQUEST DETAILS
+# ---------------------------------------------------------
 
 st.subheader("Agent A → Agent B Request")
 
@@ -271,14 +292,29 @@ with request_col3:
     st.markdown("**Requested Fields**")
 
     if requested_fields:
-        st.info(", ".join(requested_fields))
+
+        st.info(
+            ", ".join(requested_fields)
+        )
+
     else:
-        st.warning("No fields selected")
+
+        st.warning(
+            "No fields selected"
+        )
 
 
-# --------------------------------------------------
-# Send request
-# --------------------------------------------------
+if scenario == "Scenario 4 - Token-Inefficient Request":
+
+    st.info(
+        "This scenario uses only authorized and necessary fields "
+        "but intentionally demonstrates high token usage."
+    )
+
+
+# ---------------------------------------------------------
+# SEND REQUEST
+# ---------------------------------------------------------
 
 if st.button(
     "🚀 Send Request",
@@ -288,50 +324,66 @@ if st.button(
 
     if not requested_fields:
 
-        st.warning("Please select at least one field.")
+        st.warning(
+            "Please select at least one field."
+        )
 
     else:
 
         response = agent.request_customer_data(
             customer_id=customer_id,
             requested_fields=requested_fields,
-            purpose=purpose
+            purpose=purpose,
+            token_limit=token_limit
         )
+
 
         st.divider()
 
-        # --------------------------------------------------
-        # Request result
-        # --------------------------------------------------
+        st.subheader(
+            "Security Analysis Result"
+        )
 
-        st.subheader("Security Analysis Result")
 
+        # -------------------------------------------------
+        # REQUEST STATUS
+        # -------------------------------------------------
 
         if response.status == "success":
 
-            st.success("🟢 Request Allowed")
+            st.success(
+                "🟢 Request Allowed"
+            )
 
         elif response.status == "unauthorized":
 
-            st.error("🔴 Request Unauthorized")
+            st.error(
+                "🔴 Request Unauthorized"
+            )
 
         elif response.status == "data_minimization_violation":
 
-            st.warning("🟡 Data Minimization Violation")
+            st.warning(
+                "🟡 Data Minimization Violation"
+            )
 
         else:
 
-            st.info(response.status)
+            st.info(
+                response.status
+            )
 
 
         if response.message:
 
-            st.write(response.message)
+            st.write(
+                response.message
+            )
 
 
-        # --------------------------------------------------
-        # Analysis cards
-        # --------------------------------------------------
+        # -------------------------------------------------
+        # TOKEN ANALYSIS
+        # -------------------------------------------------
 
         token_analysis = response.data.get(
             "token_analysis"
@@ -340,7 +392,10 @@ if st.button(
 
         if token_analysis:
 
-            st.subheader("Token Usage Analysis")
+            st.subheader(
+                "Token Usage Analysis"
+            )
+
 
             col1, col2, col3 = st.columns(3)
 
@@ -377,16 +432,28 @@ if st.button(
                     token_analysis["message"]
                 )
 
-            else:
+
+            elif token_analysis["status"] == "high":
 
                 st.warning(
                     token_analysis["message"]
                 )
 
+                st.info(
+                    token_analysis["suggestion"]
+                )
 
-        # --------------------------------------------------
-        # Unauthorized information
-        # --------------------------------------------------
+
+            else:
+
+                st.info(
+                    token_analysis["message"]
+                )
+
+
+        # -------------------------------------------------
+        # AUTHORIZATION ANALYSIS
+        # -------------------------------------------------
 
         if response.status == "unauthorized":
 
@@ -398,7 +465,10 @@ if st.button(
 
             if unauthorized_fields:
 
-                st.subheader("Authorization Analysis")
+                st.subheader(
+                    "Authorization Analysis"
+                )
+
 
                 st.error(
                     "The following fields are not authorized "
@@ -408,12 +478,14 @@ if st.button(
 
                 for field in unauthorized_fields:
 
-                    st.write(f"❌ `{field}`")
+                    st.write(
+                        f"❌ `{field}`"
+                    )
 
 
-        # --------------------------------------------------
-        # Data minimization information
-        # --------------------------------------------------
+        # -------------------------------------------------
+        # DATA MINIMIZATION ANALYSIS
+        # -------------------------------------------------
 
         if response.status == "data_minimization_violation":
 
@@ -425,7 +497,10 @@ if st.button(
 
             if unnecessary_fields:
 
-                st.subheader("Data Minimization Analysis")
+                st.subheader(
+                    "Data Minimization Analysis"
+                )
+
 
                 st.warning(
                     "The following fields are not necessary "
@@ -435,16 +510,20 @@ if st.button(
 
                 for field in unnecessary_fields:
 
-                    st.write(f"⚠️ `{field}`")
+                    st.write(
+                        f"⚠️ `{field}`"
+                    )
 
 
-        # --------------------------------------------------
-        # Agent B response
-        # --------------------------------------------------
+        # -------------------------------------------------
+        # AGENT B RESPONSE
+        # -------------------------------------------------
 
         if response.status == "success":
 
-            st.subheader("Agent B Response")
+            st.subheader(
+                "Agent B Response"
+            )
 
 
             response_data = {
@@ -456,7 +535,9 @@ if st.button(
 
             if response_data:
 
-                st.json(response_data)
+                st.json(
+                    response_data
+                )
 
             else:
 
@@ -465,11 +546,8 @@ if st.button(
                 )
 
 
-# --------------------------------------------------
-# Footer
-# --------------------------------------------------
-
 st.divider()
+
 
 st.caption(
     "Prototype: Secure Multi-Agent AI Collaboration | "

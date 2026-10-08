@@ -10,9 +10,14 @@ class SupportAgent:
         self.name = "AgentA"
         self.communication = AgentCommunication()
 
-    def request_customer_data(self, customer_id, requested_fields, purpose):
+    def request_customer_data(
+        self,
+        customer_id,
+        requested_fields,
+        purpose,
+        token_limit=100
+    ):
 
-        # Create a standardized request
         request = AgentRequest(
             sender=self.name,
             receiver="AgentB",
@@ -21,15 +26,16 @@ class SupportAgent:
             purpose=purpose
         )
 
-        # Create a text representation of the request
         request_text = (
             f"Customer ID: {request.customer_id}\n"
             f"Requested fields: {', '.join(request.requested_fields)}\n"
             f"Purpose: {request.purpose}"
         )
 
-        # Analyze token usage
-        token_analysis = analyze_prompt(request_text)
+        token_analysis = analyze_prompt(
+            request_text,
+            token_limit=token_limit
+        )
 
         print("\nToken Usage Analysis")
         print("--------------------")
@@ -38,13 +44,11 @@ class SupportAgent:
         print("Status:", token_analysis["status"])
         print("Message:", token_analysis["message"])
 
-        # Check authorization
         authorization_result = is_authorized(
             request.sender,
             request.requested_fields
         )
 
-        # Reject unauthorized request
         if not authorization_result["authorized"]:
             return AgentResponse(
                 status="unauthorized",
@@ -57,13 +61,11 @@ class SupportAgent:
                 message="Agent A is not authorized to access the requested fields."
             )
 
-        # Check whether requested fields are necessary
         minimization_result = check_data_minimization(
             request.purpose,
             request.requested_fields
         )
 
-        # Reject request if it contains unnecessary fields
         if not minimization_result["valid"]:
             return AgentResponse(
                 status="data_minimization_violation",
@@ -79,10 +81,8 @@ class SupportAgent:
         print(f"\n{self.name} sending request to AgentB:")
         print(request)
 
-        # Send request through communication layer
         response = self.communication.send_request(request)
 
-        # Add token analysis to the response
         response.data["token_analysis"] = token_analysis
 
         return response
