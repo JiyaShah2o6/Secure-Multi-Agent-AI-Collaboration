@@ -107,19 +107,36 @@ st.divider()
 
 if page == "Overview":
     st.header("Overview")
-    st.write("Inspect what a support agent requests before a data agent releases it. The system checks permissions, sensitive fields and purpose, then allows, modifies or blocks the exchange.")
+    st.write(
+        "A governance layer for secure agent-to-agent data exchange in multi-agent systems. "
+        "When Agent A (Support Agent) requests customer data on behalf of a customer, "
+        "the Governance Layer intercepts the request, evaluates permissions, detects sensitive fields, "
+        "enforces data minimization, and only permits Agent B (Data Agent) to retrieve approved fields."
+    )
+    st.code(
+        "Customer\n"
+        "   ↓\n"
+        "Agent A — Support Agent\n"
+        "   ↓\n"
+        "Governance Layer (Authorization · Confidentiality · Minimization · Risk)\n"
+        "   ↓\n"
+        "Agent B — Internal Data Agent\n"
+        "   ↓\n"
+        "Synthetic Customer Data",
+        language="text"
+    )
     st.subheader("Start here")
-    st.write("Use **New Request** to choose a purpose and fields, or **Demo Scenarios** for the three prepared presentation cases. Results explain the decision and show whether Agent B returned data.")
+    st.write("Use **New Request** to configure an interactive request, or **Demo Scenarios** to run the three core presentation cases.")
     left, right = st.columns(2)
     left.button("Create a request", on_click=open_request, use_container_width=True)
     right.button("Open demo scenarios", on_click=lambda: st.session_state.update(page="Demo Scenarios"), use_container_width=True)
     st.subheader("System responsibilities")
     st.table([
-        {"Stage": "1. Customer input", "Responsibility": "Select a customer, purpose and requested fields."},
-        {"Stage": "2. Agent A · Support", "Responsibility": "Build a structured request and submit it to governance."},
-        {"Stage": "3. Governance", "Responsibility": "Authorize, inspect, minimize, re-analyze and audit the request."},
-        {"Stage": "4. Agent B · Data", "Responsibility": "Read only the approved fields using a single-use approval."},
-        {"Stage": "5. Synthetic records", "Responsibility": "Three local customer fixtures; no real customer database."},
+        {"Stage": "1. Customer input", "Responsibility": "Initiates the task; provides customer ID, purpose, and requested fields."},
+        {"Stage": "2. Agent A · Support", "Responsibility": "Constructs structured request; cannot access database directly."},
+        {"Stage": "3. Governance Layer", "Responsibility": "Enforces authorization, checks confidentiality, minimizes scope, mitigates risk, audits all decisions."},
+        {"Stage": "4. Agent B · Data", "Responsibility": "Retrieves only governance-approved fields using single-use execution tokens."},
+        {"Stage": "5. Synthetic records", "Responsibility": "Local customer database fixtures; no actual customer data is exposed."},
     ])
 
 elif page == "Demo Scenarios":
@@ -250,7 +267,7 @@ elif page == "New Request":
         elif decision == "ALLOW":
             st.error("Policy allowed the request, but execution failed. No customer data released.")
         else:
-            st.write("Request withheld. No customer data released.")
+            st.write("Request withheld by governance. Blocked request did not reach Agent B. No customer data released.")
         st.caption("Policy and execution evidence is available on the Audit Log page.")
         token = metadata.get("token_analysis", {})
         if token:
