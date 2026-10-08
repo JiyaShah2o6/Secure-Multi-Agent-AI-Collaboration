@@ -169,6 +169,7 @@ class TestAgentGovernanceIntegration(unittest.TestCase):
     def test_human_review_approval_requires_safe_recheck(self):
         response = self.send(purpose="Unspecified task")
         self.assertEqual(response.status, "human_review")
+        self.assertIn("purpose is unrecognized", response.message)
         self.assertFalse(response.data)
         request_id = response.metadata["request_id"]
         approved = self.transport.review_request(request_id, "Approve", purpose=PURPOSE)

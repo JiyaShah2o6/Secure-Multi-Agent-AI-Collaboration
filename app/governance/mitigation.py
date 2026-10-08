@@ -107,9 +107,16 @@ def determine_mitigation(
             modified_request=None,
         )
 
+    if any("UNKNOWN_PURPOSE" in f.labels for f in findings):
+        return MitigationDecision(
+            "HUMAN_REVIEW",
+            "The request purpose is unrecognized. A reviewer must confirm a supported purpose before re-analysis.",
+            "HUMAN_REVIEW",
+        )
+
     has_restricted_data = any(
         "RESTRICTED" in f.labels or "UNKNOWN_FIELD" in f.labels
-        or "UNKNOWN_PURPOSE" in f.labels for f in findings
+        for f in findings
     )
     if has_restricted_data:
         return MitigationDecision(
