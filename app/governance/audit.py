@@ -9,6 +9,38 @@ from typing import Any, Optional
 
 from app.models.schemas import Finding, GovernanceResult, Request
 from app.authorization.data_minimization import PURPOSE_FIELDS
+from app.governance.confidentiality import classify_field
+
+
+def safe_fields(fields):
+    """Retain schema names, never arbitrary input masquerading as a field name."""
+    if not isinstance(fields, (list, tuple)):
+        return ["[invalid fields]"]
+    return [f.strip().lower() if isinstance(f, str) and classify_field(f) != "UNKNOWN"
+            else "[unknown field]" for f in fields]
+
+
+def safe_findings(findings):
+    sanitized = []
+    for finding in findings:
+        item = dict(finding)
+        item["evidence"] = "[redacted]" if item.get("evidence") else ""
+        if "UNKNOWN_FIELD" in item.get("labels", []):
+            item["labels"] = ["UNKNOWN_FIELD"]
+            item["explanation"] = "Requested field is not in the recognized customer schema."
+        sanitized.append(item)
+    return sanitized
+
+
+def safe_trajectory(trajectory):
+    return [{**step, "findings": safe_findings(step.get("findings", [])),
+             "modified_fields": safe_fields(step["modified_fields"])
+             if step.get("modified_fields") is not None else None} for step in trajectory]
+
+
+def safe_agent(value):
+    known = {"AgentA", "AgentB", "agent_a", "agent_b", "support_agent", "data_agent"}
+    return value if isinstance(value, str) and value in known else "[unrecognized agent]"
 
 
 @dataclass
@@ -79,26 +111,29 @@ class AuditLogger:
     ) -> AuditRecord:
         self._init_db()
         timestamp = datetime.now(timezone.utc).isoformat()
-        findings_serialized = [asdict(f) for f in result.findings]
-        # Keep labels/explanations, but never persist matched PII or raw payloads.
-        for finding in findings_serialized:
-            finding["evidence"] = "[redacted]" if finding["evidence"] else ""
+        findings_serialized = safe_findings([asdict(f) for f in result.findings])
         details = {
             # Retain the structured demo request, never arbitrary purpose text or IDs.
             "original_request": {
-                "sender": request.sender,
-                "receiver": request.receiver,
-                "customer_id": request.customer_id if re.fullmatch(r"C[0-9]{3}", request.customer_id) else "[redacted]",
-                "requested_fields": request.requested_fields,
-                "purpose": request.purpose if request.purpose in PURPOSE_FIELDS else "[custom purpose redacted]",
+                "sender": safe_agent(request.sender),
+                "receiver": safe_agent(request.receiver),
+                "customer_id": request.customer_id if isinstance(request.customer_id, str) and re.fullmatch(r"C[0-9]{3}", request.customer_id) else "[redacted]",
+                "requested_fields": safe_fields(request.requested_fields),
+                "purpose": request.purpose if isinstance(request.purpose, str) and request.purpose in PURPOSE_FIELDS else "[custom purpose redacted]",
             },
             "authorization": result.authorization,
-            "requested_fields": request.requested_fields,
-            "effective_fields": (result.modified_request or request).requested_fields,
+            "requested_fields": safe_fields(request.requested_fields),
+            "effective_fields": safe_fields((result.modified_request or request).requested_fields),
             "reason": result.reason,
             "mitigation": result.suggested_action,
-            "trajectory": result.trajectory,
+            "trajectory": safe_trajectory(result.trajectory),
         }
+        if reanalysis_info is not None:
+            reanalysis_info = dict(reanalysis_info)
+            if reanalysis_info.get("modified_fields") is not None:
+                reanalysis_info["modified_fields"] = safe_fields(reanalysis_info["modified_fields"])
+            if "trajectory" in reanalysis_info:
+                reanalysis_info["trajectory"] = safe_trajectory(reanalysis_info["trajectory"])
         findings_json = json.dumps(findings_serialized)
         reanalysis_json = (
             json.dumps(reanalysis_info) if reanalysis_info is not None else None
@@ -119,8 +154,8 @@ class AuditLogger:
                     (
                         request.request_id,
                         timestamp,
-                        request.sender,
-                        request.receiver,
+                        safe_agent(request.sender),
+                        safe_agent(request.receiver),
                         findings_json,
                         result.risk_level,
                         result.decision,
@@ -138,8 +173,8 @@ class AuditLogger:
             record_id=record_id,
             request_id=request.request_id,
             timestamp=timestamp,
-            sender=request.sender,
-            receiver=request.receiver,
+            sender=safe_agent(request.sender),
+            receiver=safe_agent(request.receiver),
             findings=findings_serialized,
             risk_level=result.risk_level,
             decision=result.decision,
@@ -147,6 +182,17 @@ class AuditLogger:
             reanalysis_info=reanalysis_info,
             details=details,
         )
+
+    def record_rejection(self, request_id, *, sender=None, receiver=None,
+                         customer_id=None, requested_fields=None, purpose=None):
+        """Record validation denial without serializing the malformed payload or exception."""
+        request = Request(request_id, sender, receiver, customer_id, requested_fields, purpose)
+        result = GovernanceResult(request_id, "HIGH", [Finding(
+            "validation", "HIGH", ["MALFORMED_REQUEST"], "",
+            "Request failed input validation; no data access attempted.", "BLOCK")],
+            "BLOCK", "Malformed request rejected before data access.", "BLOCK",
+            authorization=False)
+        return self.record_audit(request, result)
 
     def get_records_by_request_id(self, request_id: str) -> list[AuditRecord]:
         self._init_db()
@@ -234,7 +280,7 @@ class AuditLogger:
                 if row is None:
                     raise ValueError("No policy event for execution")
                 details = json.loads(row[1]) if row[1] else {}
-                details["execution"] = {"status": status, "returned_fields": returned_fields}
+                details["execution"] = {"status": status, "returned_fields": safe_fields(returned_fields)}
                 conn.execute("UPDATE audit_logs SET details_json = ? WHERE record_id = ?",
                              (json.dumps(details), row[0]))
         finally:

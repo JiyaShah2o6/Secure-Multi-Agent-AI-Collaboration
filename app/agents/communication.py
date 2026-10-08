@@ -83,7 +83,12 @@ class AgentCommunication:
         finally:
             self._approved.pop(ticket, None)
         # Defense against accidental extra-field responses from the data module.
-        if response.status == "success" and not set(response.data).issubset(effective.requested_fields):
+        if not isinstance(response, AgentResponse) or not isinstance(response.data, dict):
+            response = AgentResponse("error", {}, "Invalid downstream response withheld.")
+        elif response.status != "success":
+            # Neither payloads nor untrusted downstream error text may cross the boundary.
+            response = AgentResponse("error", {}, "Data retrieval did not succeed; response withheld.")
+        elif not set(response.data).issubset(effective.requested_fields):
             response = AgentResponse("blocked", {}, "Unexpected response fields withheld.")
         try:
             self.audit_logger.record_execution(request.request_id, response.status, list(response.data))
