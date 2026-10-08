@@ -29,8 +29,8 @@ python -m unittest discover tests
 ```
 
 Install requirements before testing: the suite includes Streamlit AppTest tests.
-The current suite contains 93 tests, including the existing Governance and Person 2
-tests, end-to-end security tests, and four UI tests. AppTest may print a harmless
+The current suite contains 106 tests, including the existing Governance and Person 2
+tests, end-to-end security tests, and six UI tests. AppTest may print a harmless
 `missing ScriptRunContext` warning outside a running Streamlit server.
 
 ## Five-minute demonstration
@@ -58,6 +58,10 @@ default `Unspecified task` and `complaint_status`, then send. No data is returne
 Confirm **Resolve customer complaint**, then choose Approve, Restrict, or Reject.
 Approve/Restrict run Governance again; the reviewer cannot override forbidden-field
 or hostile-payload blocks. This is a local demonstration, not authenticated review.
+Restrict sets a persistent field limit: minimization can remove selected fields but
+cannot add replacements outside that limit. If none of the selected fields are needed
+for the confirmed purpose, the result is RESTRICT with no returned data. An invalid
+empty review selection can be corrected without losing the pending request.
 
 Each scenario has a separate probing history. Three requests in 60 seconds trigger
 RESTRICT, even if their fields are otherwise safe. Use **New session for this
@@ -96,10 +100,14 @@ authorization, findings, risk, mitigation, re-analysis trajectory, human action 
 execution outcome. Returned customer values are not recorded. Matched evidence and
 free-form purposes are redacted; only supported purposes and synthetic-style customer
 IDs are retained. A review appends another event under the same request ID.
+Unknown/malformed field names are stored as placeholders, including in findings and
+analysis history. Known legacy agent names remain readable; arbitrary identities are
+redacted. Validation failures record HIGH/BLOCK with a MALFORMED_REQUEST finding.
 
 Policy decisions and execution outcomes are distinct: an ALLOW can still end in a
 missing-customer or audit error with no released data. Governance/audit errors deny
-retrieval or withhold the response. Invalid input is rejected before governance;
+retrieval or withhold the response. Every non-success downstream response has its
+payload and downstream diagnostics withheld. Invalid input is rejected and audited;
 an unavailable audit store cannot itself record its failure, so the UI reports it.
 
 ## Scope and limitations
@@ -116,6 +124,8 @@ an unavailable audit store cannot itself record its failure, so the UI reports i
 See [architecture](docs/architecture.md), [workflow/demo script](docs/workflow.md),
 [methodology](docs/methodology.md), [objectives](docs/objectives.md),
 [problem statement](docs/problem_statement.md), and [research scope](docs/research_gap.md).
+The [ownership record](docs/contributor_ownership.md) distinguishes preserved mixed
+integration history from new contributor-specific follow-ups.
 
 ## Git workflow
 

@@ -200,18 +200,16 @@ if scenario == "Scenario 4 - Token-Inefficient Request":
     st.info("A deliberately low token limit demonstrates an efficiency warning. It does not increase security risk.")
 
 if st.button("Send Request", type="primary", key="send"):
-    if not requested_fields:
-        st.warning("Please select at least one field.")
-    else:
-        st.session_state.responses[scenario] = agent.request_customer_data(
-            customer_id, requested_fields, purpose, token_limit=token_limit,
-        )
+    st.session_state.responses[scenario] = agent.request_customer_data(
+        customer_id, requested_fields, purpose, token_limit=token_limit,
+    )
 
 response = st.session_state.responses.get(scenario)
 if response is not None and response.status == "human_review":
     st.subheader("Human Review")
     st.warning("No data has been retrieved. This is a local demo reviewer, not an authenticated supervisor system.")
     st.caption("Confirm a supported purpose. Approve and Restrict re-run all checks; forbidden fields and hostile requests cannot be overridden.")
+    st.caption("Restrict sets an upper bound: later minimization cannot add fields you did not keep.")
     action = st.selectbox("Review action", ["Approve", "Restrict", "Reject"], key="review_action")
     review_purpose = st.selectbox("Confirmed purpose", list(PURPOSE_FIELDS), key="review_purpose")
     review_fields = response.metadata.get("requested_fields", [])
@@ -222,9 +220,12 @@ if response is not None and response.status == "human_review":
         reviewed = agent.communication.review_request(
             response.metadata["request_id"], action, purpose=review_purpose, fields=review_fields,
         )
-        reviewed.metadata["token_analysis"] = response.metadata.get("token_analysis", {})
-        st.session_state.responses[scenario] = reviewed
-        st.rerun()
+        if reviewed.status == "error":
+            st.error(reviewed.message)
+        else:
+            reviewed.metadata["token_analysis"] = response.metadata.get("token_analysis", {})
+            st.session_state.responses[scenario] = reviewed
+            st.rerun()
 
 response = st.session_state.responses.get(scenario)
 if response is not None:
@@ -269,6 +270,8 @@ if response is not None:
     st.write("Original field permissions:", initial_auth)
     st.write("Original purpose check:", minimum)
     st.write("Effective fields:", metadata.get("effective_fields", []))
+    if metadata.get("review_scope") is not None:
+        st.write("Reviewer field limit:", metadata["review_scope"])
     if "*" in metadata.get("requested_fields", []):
         st.caption("Wildcard is a projection proposal. Only permitted, purpose-required concrete fields can proceed after re-analysis.")
 

@@ -58,9 +58,10 @@ def check_data_minimization(purpose, requested_fields):
     }
 
 
-def suggest_minimum_fields(purpose, allowed_fields):
+def suggest_minimum_fields(purpose, allowed_fields, field_scope=None):
     """Purpose-specific projection, intersected with the agent's permissions."""
     required = PURPOSE_FIELDS.get(purpose, set())
     order = ["customer_id", "name", "complaint_id", "complaint_status",
              "email", "phone", "complaint_description", "bank_account"]
-    return [name for name in order if name in required and name in allowed_fields]
+    return [name for name in order if name in required and name in allowed_fields
+            and (field_scope is None or name in field_scope)]
