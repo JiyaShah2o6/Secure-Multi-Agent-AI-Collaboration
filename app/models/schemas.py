@@ -51,3 +51,4 @@ class GovernanceResult:
     suggested_action: str
     modified_request: Optional[Request] = None
     trajectory: list[dict[str, Any]] = field(default_factory=list)
+    authorization: Optional[bool] = None

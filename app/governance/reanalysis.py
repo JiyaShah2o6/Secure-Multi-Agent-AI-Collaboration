@@ -41,9 +41,7 @@ def run_single_governance_pass(
     record_probe: bool = True,
 ) -> GovernanceResult:
     """Standalone analyzer API is retained; application calls enforce_policy=True."""
-    findings = analyze_confidentiality(request) + analyze_security(
-        request, tracker=tracker, record_probe=record_probe
-    )
+    findings = []
     provider = auth_provider or (authorization_provider if enforce_policy else None)
     authorized = is_authorized
     if provider is not None:
@@ -58,6 +56,9 @@ def run_single_governance_pass(
     if authorized is False:
         findings.append(_finding("authorization", "HIGH", "UNAUTHORIZED_ACCESS", "",
                                  "Request contains forbidden fields or an invalid agent identity.", "BLOCK"))
+
+    findings.extend(analyze_confidentiality(request))
+    findings.extend(analyze_security(request, tracker=tracker, record_probe=record_probe))
 
     minimum = None
     if enforce_policy:
@@ -85,11 +86,13 @@ def run_single_governance_pass(
                 mitigation.modified_request = replace(request, requested_fields=minimum)
             else:
                 mitigation.decision = "RESTRICT"
+                mitigation.suggested_action = "RESTRICT"
                 mitigation.reason = "No permitted projection exists for this purpose."
                 mitigation.modified_request = None
     return GovernanceResult(request.request_id, risk.risk_level, findings,
                             mitigation.decision, mitigation.reason,
-                            mitigation.suggested_action, mitigation.modified_request)
+                            mitigation.suggested_action, mitigation.modified_request,
+                            authorization=authorized)
 
 
 def reanalyze_request(
@@ -149,6 +152,7 @@ def govern_request(
             finding["evidence"] = "[redacted]" if finding["evidence"] else ""
         final.trajectory.append({
             "pass": idx, "decision": result.decision, "risk_level": result.risk_level,
+            "authorization": result.authorization,
             "reason": result.reason, "findings": findings,
             "modified_fields": result.modified_request.requested_fields if result.modified_request else None,
         })

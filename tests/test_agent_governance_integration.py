@@ -10,7 +10,7 @@ from app.governance.audit import AuditLogger
 from app.governance.confidentiality import classify_field
 from app.governance.reanalysis import govern_request
 from app.governance.security import ProbingTracker
-from app.models.schemas import AgentRequest, Request
+from app.models.schemas import AgentRequest, AgentResponse, Request
 
 PURPOSE = "Resolve customer complaint"
 
@@ -208,6 +208,87 @@ class TestAgentGovernanceIntegration(unittest.TestCase):
         govern_request(request, audit_logger=self.logger, tracker=ProbingTracker())
         record = self.logger.get_records_by_request_id("pii")[0]
         self.assertNotIn("alice@example.com", str(record))
+
+    def test_governance_crash_never_reads_data(self):
+        with patch("app.agents.communication.govern_request", side_effect=RuntimeError("analysis failed")):
+            with patch.object(self.transport.data_agent, "handle_request") as read:
+                response = self.send()
+                read.assert_not_called()
+        self.assertEqual(response.status, "error")
+        self.assertFalse(response.data)
+
+    def test_reanalysis_crash_never_reads_data(self):
+        from app.governance.reanalysis import run_single_governance_pass
+        calls = []
+        def fail_second(*args, **kwargs):
+            calls.append(1)
+            if len(calls) == 2:
+                raise RuntimeError("re-analysis failed")
+            return run_single_governance_pass(*args, **kwargs)
+        with patch("app.governance.reanalysis.run_single_governance_pass", side_effect=fail_second):
+            with patch.object(self.transport.data_agent, "handle_request") as read:
+                response = self.send(["*"])
+                read.assert_not_called()
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(response.status, "error")
+        self.assertFalse(response.data)
+
+    def test_confidential_and_unknown_fields_never_read(self):
+        for field in ("email", "phone", "not_a_customer_field", "card_details"):
+            with self.subTest(field=field), patch.object(self.transport.data_agent, "handle_request") as read:
+                response = self.send([field])
+                read.assert_not_called()
+                self.assertEqual(response.metadata["governance"]["decision"], "BLOCK")
+                self.assertFalse(response.data)
+
+    def test_execution_audit_failure_withholds_response(self):
+        with patch.object(self.logger, "record_execution", side_effect=OSError("disk full")):
+            response = self.send()
+        self.assertEqual(response.status, "error")
+        self.assertFalse(response.data)
+
+    def test_unexpected_response_field_withheld(self):
+        with patch.object(self.transport.data_agent, "handle_request",
+                          return_value=AgentResponse("success", {"bank_account": "fake"})):
+            response = self.send()
+        self.assertEqual(response.status, "blocked")
+        self.assertFalse(response.data)
+        record = self.logger.get_records_by_request_id(response.metadata["request_id"])[0]
+        self.assertEqual(record.details["execution"], {"status": "blocked", "returned_fields": []})
+
+    def test_missing_customer_is_safe_and_audited(self):
+        response = self.send(customer="C999")
+        self.assertEqual(response.status, "error")
+        self.assertFalse(response.data)
+        record = self.logger.get_records_by_request_id(response.metadata["request_id"])[0]
+        self.assertEqual(record.details["execution"]["status"], "error")
+
+    def test_audit_includes_request_and_authorization_per_pass(self):
+        response = self.send(["*"])
+        record = self.logger.get_records_by_request_id(response.metadata["request_id"])[0]
+        self.assertEqual(record.details["original_request"], {
+            "sender": "AgentA", "receiver": "AgentB", "customer_id": "C101",
+            "requested_fields": ["*"], "purpose": PURPOSE,
+        })
+        self.assertTrue(record.details["authorization"])
+        self.assertEqual([p["authorization"] for p in record.details["trajectory"]], [True, True])
+        self.assertEqual([p["risk_level"] for p in record.details["trajectory"]], ["MEDIUM", "LOW"])
+
+    def test_authorization_runs_before_confidentiality(self):
+        order = []
+        from app.governance.confidentiality import analyze_confidentiality
+        def authorize(request):
+            order.append("authorization")
+            return True
+        def analyze(request):
+            order.append("confidentiality")
+            return analyze_confidentiality(request)
+        request = Request("ordered", "AgentA", "AgentB", "C101", ["complaint_status"], PURPOSE)
+        with patch("app.governance.reanalysis.analyze_confidentiality", side_effect=analyze):
+            result = govern_request(request, auth_provider=authorize, enforce_policy=True,
+                                    audit_logger=self.logger, tracker=ProbingTracker())
+        self.assertEqual(result.decision, "ALLOW")
+        self.assertEqual(order, ["authorization", "confidentiality"])
 
 
 if __name__ == "__main__":

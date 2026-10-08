@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 from app.models.schemas import Finding, GovernanceResult, Request
+from app.authorization.data_minimization import PURPOSE_FIELDS
 
 
 @dataclass
@@ -82,6 +84,15 @@ class AuditLogger:
         for finding in findings_serialized:
             finding["evidence"] = "[redacted]" if finding["evidence"] else ""
         details = {
+            # Retain the structured demo request, never arbitrary purpose text or IDs.
+            "original_request": {
+                "sender": request.sender,
+                "receiver": request.receiver,
+                "customer_id": request.customer_id if re.fullmatch(r"C[0-9]{3}", request.customer_id) else "[redacted]",
+                "requested_fields": request.requested_fields,
+                "purpose": request.purpose if request.purpose in PURPOSE_FIELDS else "[custom purpose redacted]",
+            },
+            "authorization": result.authorization,
             "requested_fields": request.requested_fields,
             "effective_fields": (result.modified_request or request).requested_fields,
             "reason": result.reason,
