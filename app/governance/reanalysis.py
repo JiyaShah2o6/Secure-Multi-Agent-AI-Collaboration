@@ -39,6 +39,7 @@ def run_single_governance_pass(
     auth_provider: Optional[Callable[[Request], bool]] = None,
     enforce_policy: bool = False,
     record_probe: bool = True,
+    field_scope: Optional[list[str]] = None,
 ) -> GovernanceResult:
     """Standalone analyzer API is retained; application calls enforce_policy=True."""
     findings = []
@@ -67,7 +68,7 @@ def run_single_governance_pass(
             findings.append(_finding("data_minimization", "HIGH", "UNKNOWN_PURPOSE", "",
                                      "Unrecognized purpose requires a human to select a supported purpose.", "REVIEW"))
         elif not minimization["valid"]:
-            minimum = suggest_minimum_fields(request.purpose, get_allowed_fields(request.sender))
+            minimum = suggest_minimum_fields(request.purpose, get_allowed_fields(request.sender), field_scope)
             findings.append(_finding("data_minimization", "MEDIUM", "DATA_MINIMIZATION", "",
                                      "Requested fields exceed the needs of the stated purpose.", "MODIFY"))
 
@@ -77,7 +78,7 @@ def run_single_governance_pass(
     if enforce_policy and risk.risk_level == "MEDIUM" and not probing:
         if minimum is not None or mitigation.decision == "MODIFY":
             minimum = minimum if minimum is not None else suggest_minimum_fields(
-                request.purpose, get_allowed_fields(request.sender)
+                request.purpose, get_allowed_fields(request.sender), field_scope
             )
             if minimum:
                 mitigation.decision = "MODIFY"
@@ -104,6 +105,7 @@ def reanalyze_request(
     *,
     auth_provider: Optional[Callable[[Request], bool]] = None,
     enforce_policy: bool = False,
+    field_scope: Optional[list[str]] = None,
 ) -> tuple[GovernanceResult, list[GovernanceResult]]:
     if max_reanalysis_limit < 0:
         raise ValueError("Re-analysis limit must be nonnegative")
@@ -113,6 +115,7 @@ def reanalyze_request(
         result = (governance_fn(current) if governance_fn else run_single_governance_pass(
             current, is_authorized, tracker, auth_provider=auth_provider,
             enforce_policy=enforce_policy, record_probe=(attempt == 0),
+            field_scope=field_scope,
         ))
         history.append(deepcopy(result))
         if result.decision != "MODIFY" or result.modified_request is None:
@@ -140,10 +143,11 @@ def govern_request(
     *,
     enforce_policy: bool = False,
     human_action: Optional[str] = None,
+    field_scope: Optional[list[str]] = None,
 ) -> GovernanceResult:
     final, history = reanalyze_request(
         request, is_authorized, tracker=tracker, auth_provider=auth_provider,
-        enforce_policy=enforce_policy,
+        enforce_policy=enforce_policy, field_scope=field_scope,
     )
     final.trajectory = []
     for idx, result in enumerate(history):

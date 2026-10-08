@@ -25,3 +25,19 @@ commit is split, rebased, reauthored or cherry-picked for contribution appearanc
 Review scope is an upper bound, not permission to add replacement fields. Error
 responses must carry no customer payload or downstream diagnostics. Audit records
 must preserve security decisions without persisting arbitrary malformed input.
+
+## Implemented follow-ups
+
+- Jiya: 3916577 adds response-boundary confidentiality, audit sanitization, the
+  validation-rejection audit API, and four security regression tests. PR #4 merged
+  it alongside the preserved integrated history.
+- Bhumi: reviewer fields now bound minimization and the authorization callback on
+  every pass, including a later review attempt. Agent validation calls Jiya's audit
+  API. The UI preserves pending review after invalid selections and displays the
+  field limit. Seven authorization/review tests and two UI tests cover these cases.
+- The small `field_scope` argument passed through Governance orchestration is shared
+  interface wiring needed by Bhumi's minimization fix; the Governance policy engine
+  and historical commits are not replaced.
+
+Validation baseline grew from 93 to 106 tests: four Jiya security tests plus nine
+Bhumi authorization/UI tests. All original test cases and assertions remain present.

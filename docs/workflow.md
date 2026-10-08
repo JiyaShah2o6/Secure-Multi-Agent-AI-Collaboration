@@ -13,6 +13,13 @@
    complaint-status request. Confirm a known purpose and approve; all checks rerun.
    Start a new scenario session to demonstrate rejection independently.
 
+To demonstrate binding reviewer scope, start a new Custom Request session, choose
+`name` and `complaint_status`, and send with Other / human review. Select Restrict,
+keep only `name`, and confirm Resolve customer complaint. The result is RESTRICT,
+with no customer data: the system may not replace the selected scope with complaint
+fields. Keeping both fields instead permits MODIFY → ALLOW with only complaint_status.
+Submitting no fields produces an audited validation rejection.
+
 For a repeat-request demonstration, send the same safe scenario three times within
 60 seconds. The third is RESTRICT with no returned data. The explicit new-session
 button resets that scenario's probing history without deleting audit records.

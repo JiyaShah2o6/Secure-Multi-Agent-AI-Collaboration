@@ -69,6 +69,33 @@ class TestStreamlitDemo(unittest.TestCase):
         self.assertEqual(response.status, "blocked")
         self.assertFalse(response.data)
 
+    def test_empty_submission_is_rejected_and_audited(self):
+        self.app.multiselect(key="custom_fields").set_value([]).run()
+        self.app.button(key="send").click().run()
+        self.assertFalse(self.app.exception)
+        response = self.app.session_state["responses"]["Custom Request"]
+        self.assertEqual(response.status, "error")
+        agent = self.app.session_state["agents"]["Custom Request"]
+        records = agent.communication.audit_logger.get_records_by_request_id(response.metadata["request_id"])
+        self.assertEqual(records[0].decision, "BLOCK")
+
+    def test_reviewer_restriction_does_not_expand_in_ui(self):
+        self.app.multiselect(key="custom_fields").set_value(["name", "complaint_status"]).run()
+        self.app.selectbox(key="purpose_option").select("Other / human review").run()
+        self.app.button(key="send").click().run()
+        self.app.selectbox(key="review_action").select("Restrict").run()
+        self.app.multiselect(key="review_fields").set_value([]).run()
+        self.app.button(key="review_submit").click().run()
+        self.assertEqual(self.app.session_state["responses"]["Custom Request"].status, "human_review")
+        self.assertTrue(self.app.error)
+        self.app.multiselect(key="review_fields").set_value(["name"]).run()
+        self.app.button(key="review_submit").click().run()
+        self.assertFalse(self.app.exception)
+        response = self.app.session_state["responses"]["Custom Request"]
+        self.assertEqual(response.status, "restricted")
+        self.assertEqual(response.metadata["review_scope"], ["name"])
+        self.assertFalse(response.data)
+
 
 if __name__ == "__main__":
     unittest.main()

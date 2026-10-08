@@ -8,7 +8,7 @@ from app.agents.data_agent import DataAgent
 from app.authorization.data_minimization import check_data_minimization
 from app.authorization.permissions import is_authorized
 from app.governance.audit import AuditLogger, default_audit_logger
-from app.governance.reanalysis import govern_request
+from app.governance.reanalysis import govern_request, authorization_provider
 from app.governance.security import ProbingTracker
 from app.models.schemas import AgentResponse, GovernanceResult, Request
 
@@ -39,21 +39,37 @@ class AgentCommunication:
             fields = ["bank_account" if f == "bank_account_details" else f for f in fields]
             candidate = Request(request_id, request.sender, request.receiver,
                                 request.customer_id.strip(), fields, request.purpose.strip())
-        except (AttributeError, ValueError) as error:
-            return AgentResponse("error", {}, str(error), {"request_id": request_id})
+        except (AttributeError, ValueError):
+            try:
+                self.audit_logger.record_rejection(request_id,
+                    **{key: getattr(request, key, None) for key in
+                       ("sender", "receiver", "customer_id", "requested_fields", "purpose")})
+            except Exception:
+                return AgentResponse("error", {}, "Invalid request; audit unavailable. No data retrieved.",
+                                     {"request_id": request_id})
+            return AgentResponse("error", {}, "Invalid request; rejection audited. No data retrieved.",
+                                 {"request_id": request_id})
         return self._evaluate(candidate)
 
-    def _evaluate(self, request, human_action=None):
+    def _evaluate(self, request, human_action=None, review_scope=None):
+        # This callback retains the existing permission policy and binds each pass
+        # to the reviewer scope. Minimization can only narrow that scope.
+        provider = None
+        if review_scope is not None:
+            scope = frozenset(review_scope)
+            provider = lambda candidate: (authorization_provider(candidate)
+                         and set(candidate.requested_fields).issubset(scope))
         try:
             result = govern_request(request, audit_logger=self.audit_logger,
                                     tracker=self.tracker, enforce_policy=True,
-                                    human_action=human_action)
+                                    human_action=human_action, auth_provider=provider,
+                                    field_scope=review_scope)
         except Exception:
             # Audit/analysis failure must never fall through to the data agent.
             return AgentResponse("error", {}, "Governance or audit unavailable; no data retrieved.",
                                  {"request_id": request.request_id})
         if result.decision == "HUMAN_REVIEW":
-            self._pending[request.request_id] = (deepcopy(request), deepcopy(result))
+            self._pending[request.request_id] = (deepcopy(request), deepcopy(result), deepcopy(review_scope))
         effective = deepcopy(result.modified_request or request)
         policy = asdict(result)
         for finding in policy["findings"]:
@@ -67,6 +83,7 @@ class AgentCommunication:
             "authorization": is_authorized(request.sender, request.requested_fields),
             "data_minimization": check_data_minimization(request.purpose, request.requested_fields),
             "governance": policy,
+            "review_scope": list(review_scope) if review_scope is not None else None,
         }
         if result.decision != "ALLOW":
             status = "unauthorized" if any("UNAUTHORIZED_ACCESS" in f.labels for f in result.findings) else {
@@ -104,7 +121,7 @@ class AgentCommunication:
         pending = self._pending.get(request_id)
         if pending is None:
             return AgentResponse("error", {}, "No pending review in this session.")
-        request, previous = deepcopy(pending)
+        request, previous, review_scope = deepcopy(pending)
         if action == "Reject":
             result = GovernanceResult(request_id, previous.risk_level, previous.findings,
                                       "BLOCK", "Rejected by the demo reviewer.", "BLOCK")
@@ -124,8 +141,9 @@ class AgentCommunication:
                     or not all(isinstance(f, str) and f in request.requested_fields for f in fields)):
                 return AgentResponse("error", {}, "Restriction must select a nonempty subset of the pending fields.")
             request = replace(request, requested_fields=list(fields))
+            review_scope = list(fields)
         self._pending.pop(request_id)
-        response = self._evaluate(request, human_action=action.upper())
+        response = self._evaluate(request, human_action=action.upper(), review_scope=review_scope)
         if response.status == "error":
             self._pending[request_id] = pending
         return response
