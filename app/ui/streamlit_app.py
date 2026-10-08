@@ -28,129 +28,39 @@ st.set_page_config(
 )
 
 
-st.markdown(
-    """
-    <style>
-        .main-title {
-            font-size: 42px;
-            font-weight: 700;
-            margin-bottom: 5px;
-        }
-
-        .subtitle {
-            font-size: 17px;
-            color: #9ca3af;
-            margin-bottom: 30px;
-        }
-
-        .section-title {
-            font-size: 24px;
-            font-weight: 600;
-            margin-top: 15px;
-            margin-bottom: 15px;
-        }
-
-        .flow-box {
-            padding: 18px;
-            border-radius: 12px;
-            text-align: center;
-            background-color: #1f2937;
-            border: 1px solid #374151;
-        }
-
-        .flow-arrow {
-            text-align: center;
-            font-size: 25px;
-            padding-top: 18px;
-        }
-
-        .info-box {
-            padding: 15px;
-            border-radius: 10px;
-            background-color: #111827;
-            border: 1px solid #374151;
-        }
-    </style>
-    """,
-    unsafe_allow_html=True
-)
-
-
-
-
-# ---------------------------------------------------------
-# HEADER
-# ---------------------------------------------------------
-
-st.markdown(
-    '<div class="main-title">🔐 Secure Multi-Agent AI Collaboration</div>',
-    unsafe_allow_html=True
-)
-
-st.markdown(
-    '<div class="subtitle">'
-    'Secure communication and controlled data sharing between AI agents'
-    '</div>',
-    unsafe_allow_html=True
-)
-
-
-# ---------------------------------------------------------
-# SYSTEM FLOW
-# ---------------------------------------------------------
-
-st.subheader("System Flow")
-
-flow1, arrow1, flow2, arrow2, flow3 = st.columns(
-    [2, 0.5, 2, 0.5, 2]
-)
-
-with flow1:
-    st.markdown(
-        '<div class="flow-box"><b>🤖 Agent A</b><br>'
-        'Support Agent</div>',
-        unsafe_allow_html=True
-    )
-
-with arrow1:
-    st.markdown(
-        '<div class="flow-arrow">→</div>',
-        unsafe_allow_html=True
-    )
-
-with flow2:
-    st.markdown(
-        '<div class="flow-box"><b>🛡️ Security Checks</b><br>'
-        'Authorization<br>'
-        'Data Minimization<br>'
-        'Confidentiality / Security<br>'
-        'Risk / Mitigation / Re-analysis<br>'
-        'Audit Logging</div>',
-        unsafe_allow_html=True
-    )
-
-with arrow2:
-    st.markdown(
-        '<div class="flow-arrow">→</div>',
-        unsafe_allow_html=True
-    )
-
-with flow3:
-    st.markdown(
-        '<div class="flow-box"><b>🗄️ Agent B</b><br>'
-        'Data Agent</div>',
-        unsafe_allow_html=True
-    )
-
-
-st.divider()
-
-
-# ---------------------------------------------------------
-# SIDEBAR CONFIGURATION
-# ---------------------------------------------------------
-
-st.caption("Deterministic academic prototype. Simulated agents and fake data only; no LLM/API or cost calculation.")
+st.markdown("""
+<style>
+.block-container {max-width: 1280px; padding-top: 4rem;}
+.eyebrow {font: 600 .75rem monospace; letter-spacing: .14em; color: #58a6b0; margin-bottom: .6rem;}
+.dashboard-title {font-size: clamp(1.8rem, 3vw, 2.6rem); font-weight: 700; line-height: 1.15; margin-bottom: .6rem;}
+.dashboard-subtitle {opacity: .7; margin-bottom: 1.6rem;}
+.route {display: grid; grid-template-columns: 1fr auto 1fr auto 1.3fr auto 1fr auto 1fr; align-items: center; gap: .6rem; margin: 1rem 0 1.5rem;}
+.node {border: 1px solid #64748b55; border-radius: 10px; padding: 1rem; min-height: 98px;}
+.node small {display:block; opacity:.65; font-size:.72rem; margin-bottom:.4rem;}
+.node strong {font-size:.95rem;}
+.node.gate {border: 1px solid #399b9b; background: #399b9b18;}
+.arrow {color:#58a6b0;}
+@media(max-width:850px) {.route {grid-template-columns:1fr;} .node {min-height:0;} .arrow {text-align:center; transform:rotate(90deg);}}
+</style>
+<div class="eyebrow">INTERACTION SECURITY / ACADEMIC PROTOTYPE</div>
+<div class="dashboard-title">Two-Agent Governance Console</div>
+<div class="dashboard-subtitle">Inspect the exchange. Enforce the policy. Explain the decision.</div>
+<div class="route" aria-label="Customer to Agent A to Governance to Agent B to Synthetic Customer Data">
+<div class="node"><small>REQUEST ORIGIN</small><strong>Customer</strong></div><span class="arrow">→</span>
+<div class="node"><small>AGENT A</small><strong>Support Agent</strong></div><span class="arrow">→</span>
+<div class="node gate"><small>SECURITY BOUNDARY</small><strong>Governance Layer</strong></div><span class="arrow">→</span>
+<div class="node"><small>AGENT B</small><strong>Data Agent</strong></div><span class="arrow">→</span>
+<div class="node"><small>LOCAL FIXTURES</small><strong>Synthetic Customer Data</strong></div>
+</div>
+""", unsafe_allow_html=True)
+st.caption("Local, deterministic agents · Synthetic records only · No paid APIs")
+with st.expander("Three core demonstrations", expanded=True):
+    safe, blocked, broad = st.columns(3)
+    safe.markdown("**01 / SAFE**\n\nLOW → ALLOW")
+    blocked.markdown("**02 / BANK & CARD**\n\nHIGH → BLOCK → No data")
+    broad.markdown("**03 / OVER-BROAD**\n\nMODIFY → RE-ANALYSE → ALLOW")
+st.sidebar.title("Request controls")
+st.sidebar.caption("Configure Agent A's structured message")
 scenarios = json.loads((PROJECT_ROOT / "app/data/scenarios.json").read_text(encoding="utf-8"))
 scenario_map = {item["name"]: item for item in scenarios}
 scenario = st.sidebar.selectbox("Demo Scenario", ["Custom Request", *scenario_map], key="scenario")
@@ -189,7 +99,8 @@ else:
     config = scenario_map[scenario]
     purpose, requested_fields, token_limit = config["purpose"], config["requested_fields"], config["token_limit"]
 
-st.subheader("Agent A → Governance → Agent B Request")
+st.subheader("01 / Agent A — outbound request")
+st.caption("Agent A → Governance · Request preview; not yet an authorization grant")
 if scenario != "Custom Request" and config.get("description"):
     st.info(config["description"])
 left, middle, right = st.columns(3)
@@ -206,7 +117,7 @@ if st.button("Send Request", type="primary", key="send"):
 
 response = st.session_state.responses.get(scenario)
 if response is not None and response.status == "human_review":
-    st.subheader("Human Review")
+    st.subheader("Human review — decision required")
     st.warning("No data has been retrieved. This is a local demo reviewer, not an authenticated supervisor system.")
     st.caption("Confirm a supported purpose. Approve and Restrict re-run all checks; forbidden fields and hostile requests cannot be overridden.")
     st.caption("Restrict sets an upper bound: later minimization cannot add fields you did not keep.")
@@ -230,7 +141,7 @@ if response is not None and response.status == "human_review":
 response = st.session_state.responses.get(scenario)
 if response is not None:
     st.divider()
-    st.subheader("Governance Result")
+    st.subheader("02 / Governance — security decision")
     metadata = response.metadata
     governance = metadata.get("governance", {})
     if response.status == "success":
@@ -240,7 +151,8 @@ if response is not None:
     else:
         st.warning(response.message or response.status)
     st.caption("Request ID: " + metadata.get("request_id", "unavailable"))
-    cols = st.columns(3)
+    cols = st.columns(4)
+    cols[3].metric("Authorization", "Passed" if governance.get("authorization") is True else "Denied" if governance.get("authorization") is False else "Not reported")
     cols[0].metric("Final risk", governance.get("risk_level", "Unavailable"))
     cols[1].metric("Decision", governance.get("decision", "ERROR"))
     cols[2].metric("Data returned", "Yes" if response.data else "No")
@@ -248,12 +160,12 @@ if response is not None:
 
     trajectory = governance.get("trajectory", [])
     if trajectory:
-        st.subheader("Analysis and Re-analysis")
+        st.subheader("Security analysis & re-analysis")
         if any(step["decision"] == "MODIFY" for step in trajectory):
             st.info("DETECT excessive data → EXPLAIN the risk → MITIGATE with fewer fields → RE-ANALYSE → ALLOW only if safe")
         st.write(" → ".join(step["decision"] for step in trajectory))
         for step in trajectory:
-            with st.expander(f"Pass {step['pass'] + 1}: {step['risk_level']} / {step['decision']}", expanded=True):
+            with st.expander(f"Pass {step['pass'] + 1}: {step['risk_level']} / {step['decision']}", expanded=(len(trajectory) > 1)):
                 st.write(step["reason"])
                 if step.get("authorization") is not None:
                     st.write("Authorization:", "Passed" if step["authorization"] else "Denied")
@@ -264,20 +176,52 @@ if response is not None:
                 if step.get("modified_fields"):
                     st.write("Proposed fields: " + ", ".join(step["modified_fields"]))
 
-    st.subheader("Authorization and Data Minimization")
-    initial_auth = metadata.get("authorization", {})
-    minimum = metadata.get("data_minimization", {})
-    st.write("Original field permissions:", initial_auth)
-    st.write("Original purpose check:", minimum)
-    st.write("Effective fields:", metadata.get("effective_fields", []))
-    if metadata.get("review_scope") is not None:
-        st.write("Reviewer field limit:", metadata["review_scope"])
-    if "*" in metadata.get("requested_fields", []):
-        st.caption("Wildcard is a projection proposal. Only permitted, purpose-required concrete fields can proceed after re-analysis.")
+    with st.expander("Permission & minimization details"):
+        initial_auth = metadata.get("authorization", {})
+        minimum = metadata.get("data_minimization", {})
+        st.write("Original field permissions:", initial_auth)
+        st.write("Original purpose check:", minimum)
+        st.write("Effective fields:", metadata.get("effective_fields", []))
+        if metadata.get("review_scope") is not None:
+            st.write("Reviewer field limit:", metadata["review_scope"])
+        if "*" in metadata.get("requested_fields", []):
+            st.caption("Wildcard proposes a projection; only permitted, purpose-required fields proceed after re-analysis.")
+
+    st.subheader("03 / Governance → Agent B — delivery & response")
+    delivery, payload = st.columns([1, 2])
+    with delivery:
+        with st.container(border=True):
+            st.markdown("**Governance dispatch**")
+            if response.status == "success":
+                st.success("Delivered · approved request")
+            elif governance.get("decision") == "ALLOW":
+                st.warning("Policy allowed · execution did not succeed")
+            else:
+                st.info("Withheld · no data released")
+            st.caption("Agent B returns only the approved projection. Customer values are separate from security diagnostics.")
+    with payload:
+        with st.container(border=True):
+            st.markdown("**Agent B / Data Agent**")
+            if response.status == "success":
+                st.json(response.data)
+            else:
+                st.write("No customer data released.")
+    st.subheader("04 / Audit — decision evidence")
+    with st.expander("Audit trail for this request"):
+        try:
+            from dataclasses import asdict
+            records = agent.communication.audit_logger.get_records_by_request_id(metadata.get("request_id", ""))
+            st.caption(f"{len(records)} recorded event(s) · Policy decisions and execution outcomes")
+            st.dataframe([{"Decision": r.decision, "Risk": r.risk_level,
+                           "Review": r.human_action or "—", "Timestamp (UTC)": r.timestamp}
+                          for r in records], use_container_width=True, hide_index=True)
+            st.json([asdict(record) for record in records], expanded=False)
+        except Exception:
+            st.error("Audit storage is unavailable.")
 
     token = metadata.get("token_analysis", {})
     if token:
-        st.subheader("Token Efficiency")
+        st.subheader("Resource monitor / Token efficiency")
         cols = st.columns(3)
         cols[0].metric("Estimated tokens", token.get("token_count", 0))
         cols[1].metric("Recommended limit", token.get("token_limit", 0))
@@ -288,18 +232,6 @@ if response is not None:
             st.info(token.get("message", ""))
         st.caption("Word-count approximation; not an exact tokenizer and not a cost calculator.")
 
-    st.subheader("Agent B Response")
-    if response.status == "success":
-        st.json(response.data)
-    else:
-        st.info("No customer data released.")
-    with st.expander("Audit trail for this request"):
-        try:
-            from dataclasses import asdict
-            records = agent.communication.audit_logger.get_records_by_request_id(metadata.get("request_id", ""))
-            st.json([asdict(record) for record in records])
-        except Exception:
-            st.error("Audit storage is unavailable.")
 
 st.divider()
 st.caption("Governance is the central decision-maker. Response monitoring checks field projection only; full response-content analysis is future work.")
