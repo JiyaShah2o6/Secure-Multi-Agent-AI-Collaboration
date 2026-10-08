@@ -66,6 +66,11 @@ def determine_mitigation(
         )
 
     if risk_level == "MEDIUM":
+        if any("REPEATED_PROBING" in f.labels for f in findings):
+            return MitigationDecision(
+                "RESTRICT", "Repeated requests require throttling; try again after the window.",
+                "THROTTLE",
+            )
         is_over_broad = any("OVER_BROAD_REQUEST" in f.labels for f in findings)
         if is_over_broad:
             safer_fields = suggest_safer_fields(request)
@@ -103,7 +108,8 @@ def determine_mitigation(
         )
 
     has_restricted_data = any(
-        "RESTRICTED" in f.labels or "UNKNOWN_FIELD" in f.labels for f in findings
+        "RESTRICTED" in f.labels or "UNKNOWN_FIELD" in f.labels
+        or "UNKNOWN_PURPOSE" in f.labels for f in findings
     )
     if has_restricted_data:
         return MitigationDecision(

@@ -20,6 +20,7 @@ CONFIDENTIAL_FIELDS: Final[set[str]] = {
 }
 
 RESTRICTED_FIELDS: Final[set[str]] = {
+    "bank_account",
     "bank_account_details",
     "card_details",
 }

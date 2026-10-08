@@ -14,3 +14,10 @@ venv/
 
 # Streamlit
 .streamlit/
+
+# Local audit records and test/runtime artifacts
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+.runtime/

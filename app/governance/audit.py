@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Optional
 
@@ -21,6 +21,7 @@ class AuditRecord:
     human_action: Optional[str] = None
     reanalysis_info: Optional[dict[str, Any]] = None
     record_id: Optional[int] = None
+    details: dict[str, Any] = field(default_factory=dict)
 
 
 class AuditLogger:
@@ -29,7 +30,7 @@ class AuditLogger:
         self._memory_conn: Optional[sqlite3.Connection] = None
         if self.db_path == ":memory:":
             self._memory_conn = sqlite3.connect(":memory:")
-        self._init_db()
+        self._initialized = False
 
     def _get_connection(self) -> sqlite3.Connection:
         if self._memory_conn is not None:
@@ -37,6 +38,8 @@ class AuditLogger:
         return sqlite3.connect(self.db_path)
 
     def _init_db(self) -> None:
+        if self._initialized:
+            return
         conn = self._get_connection()
         try:
             with conn:
@@ -52,10 +55,15 @@ class AuditLogger:
                         risk_level TEXT NOT NULL,
                         decision TEXT NOT NULL,
                         human_action TEXT,
-                        reanalysis_json TEXT
+                        reanalysis_json TEXT,
+                        details_json TEXT
                     )
                     """
                 )
+                columns = {row[1] for row in conn.execute("PRAGMA table_info(audit_logs)")}
+                if "details_json" not in columns:
+                    conn.execute("ALTER TABLE audit_logs ADD COLUMN details_json TEXT")
+            self._initialized = True
         finally:
             if self._memory_conn is None:
                 conn.close()
@@ -67,8 +75,19 @@ class AuditLogger:
         human_action: Optional[str] = None,
         reanalysis_info: Optional[dict[str, Any]] = None,
     ) -> AuditRecord:
+        self._init_db()
         timestamp = datetime.now(timezone.utc).isoformat()
         findings_serialized = [asdict(f) for f in result.findings]
+        # Keep labels/explanations, but never persist matched PII or raw payloads.
+        for finding in findings_serialized:
+            finding["evidence"] = "[redacted]" if finding["evidence"] else ""
+        details = {
+            "requested_fields": request.requested_fields,
+            "effective_fields": (result.modified_request or request).requested_fields,
+            "reason": result.reason,
+            "mitigation": result.suggested_action,
+            "trajectory": result.trajectory,
+        }
         findings_json = json.dumps(findings_serialized)
         reanalysis_json = (
             json.dumps(reanalysis_info) if reanalysis_info is not None else None
@@ -83,8 +102,8 @@ class AuditLogger:
                     INSERT INTO audit_logs (
                         request_id, timestamp, sender, receiver,
                         findings_json, risk_level, decision,
-                        human_action, reanalysis_json
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        human_action, reanalysis_json, details_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         request.request_id,
@@ -96,6 +115,7 @@ class AuditLogger:
                         result.decision,
                         human_action,
                         reanalysis_json,
+                        json.dumps(details),
                     ),
                 )
                 record_id = cursor.lastrowid
@@ -114,16 +134,18 @@ class AuditLogger:
             decision=result.decision,
             human_action=human_action,
             reanalysis_info=reanalysis_info,
+            details=details,
         )
 
     def get_records_by_request_id(self, request_id: str) -> list[AuditRecord]:
+        self._init_db()
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 SELECT record_id, request_id, timestamp, sender, receiver,
-                       findings_json, risk_level, decision, human_action, reanalysis_json
+                       findings_json, risk_level, decision, human_action, reanalysis_json, details_json
                 FROM audit_logs
                 WHERE request_id = ?
                 ORDER BY record_id ASC
@@ -147,18 +169,20 @@ class AuditLogger:
                 decision=row[7],
                 human_action=row[8],
                 reanalysis_info=json.loads(row[9]) if row[9] else None,
+                details=json.loads(row[10]) if row[10] else {},
             )
             for row in rows
         ]
 
     def get_all_records(self) -> list[AuditRecord]:
+        self._init_db()
         conn = self._get_connection()
         try:
             cursor = conn.cursor()
             cursor.execute(
                 """
                 SELECT record_id, request_id, timestamp, sender, receiver,
-                       findings_json, risk_level, decision, human_action, reanalysis_json
+                       findings_json, risk_level, decision, human_action, reanalysis_json, details_json
                 FROM audit_logs
                 ORDER BY record_id ASC
                 """
@@ -180,9 +204,35 @@ class AuditLogger:
                 decision=row[7],
                 human_action=row[8],
                 reanalysis_info=json.loads(row[9]) if row[9] else None,
+                details=json.loads(row[10]) if row[10] else {},
             )
             for row in rows
         ]
+
+
+    def record_execution(self, request_id: str, status: str, returned_fields: list[str]) -> None:
+        """Attach retrieval outcome to the latest policy event, without storing values."""
+        self._init_db()
+        conn = self._get_connection()
+        try:
+            with conn:
+                row = conn.execute(
+                    "SELECT record_id, details_json FROM audit_logs WHERE request_id = ? "
+                    "ORDER BY record_id DESC LIMIT 1", (request_id,),
+                ).fetchone()
+                if row is None:
+                    raise ValueError("No policy event for execution")
+                details = json.loads(row[1]) if row[1] else {}
+                details["execution"] = {"status": status, "returned_fields": returned_fields}
+                conn.execute("UPDATE audit_logs SET details_json = ? WHERE record_id = ?",
+                             (json.dumps(details), row[0]))
+        finally:
+            if self._memory_conn is None:
+                conn.close()
+
+    def close(self) -> None:
+        if self._memory_conn is not None:
+            self._memory_conn.close()
 
 
 default_audit_logger = AuditLogger()

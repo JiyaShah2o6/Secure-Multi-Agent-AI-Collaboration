@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional
 
 
@@ -18,6 +18,7 @@ class AgentResponse:
     status: str
     data: dict[str, Any]
     message: str = ""
+    metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -49,3 +50,4 @@ class GovernanceResult:
     reason: str
     suggested_action: str
     modified_request: Optional[Request] = None
+    trajectory: list[dict[str, Any]] = field(default_factory=list)
