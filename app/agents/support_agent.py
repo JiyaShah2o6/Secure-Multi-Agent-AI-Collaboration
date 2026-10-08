@@ -1,41 +1,88 @@
-from app.agents.data_agent import DataAgent
+from app.agents.communication import AgentCommunication
 from app.authorization.permissions import is_authorized
+from app.authorization.data_minimization import check_data_minimization
+from app.authorization.token_analysis import analyze_prompt
+from app.models.schemas import AgentRequest, AgentResponse
 
 
 class SupportAgent:
     def __init__(self):
         self.name = "AgentA"
-        self.data_agent = DataAgent()
+        self.communication = AgentCommunication()
 
-    def request_customer_data(self, customer_id, requested_fields, purpose):
+    def request_customer_data(
+        self,
+        customer_id,
+        requested_fields,
+        purpose,
+        token_limit=100
+    ):
 
-        # Check whether Agent A is authorized
-        authorization_result = is_authorized(
-            self.name,
-            requested_fields
+        request = AgentRequest(
+            sender=self.name,
+            receiver="AgentB",
+            customer_id=customer_id,
+            requested_fields=requested_fields,
+            purpose=purpose
         )
 
-        # Stop the request if Agent A is not authorized
+        request_text = (
+            f"Customer ID: {request.customer_id}\n"
+            f"Requested fields: {', '.join(request.requested_fields)}\n"
+            f"Purpose: {request.purpose}"
+        )
+
+        token_analysis = analyze_prompt(
+            request_text,
+            token_limit=token_limit
+        )
+
+        print("\nToken Usage Analysis")
+        print("--------------------")
+        print("Estimated tokens:", token_analysis["token_count"])
+        print("Recommended limit:", token_analysis["token_limit"])
+        print("Status:", token_analysis["status"])
+        print("Message:", token_analysis["message"])
+
+        authorization_result = is_authorized(
+            request.sender,
+            request.requested_fields
+        )
+
         if not authorization_result["authorized"]:
-            return {
-                "status": "unauthorized",
-                "message": "Agent A is not authorized to access the requested fields.",
-                "unauthorized_fields": authorization_result["unauthorized_fields"]
-            }
+            return AgentResponse(
+                status="unauthorized",
+                data={
+                    "unauthorized_fields": authorization_result[
+                        "unauthorized_fields"
+                    ],
+                    "token_analysis": token_analysis
+                },
+                message="Agent A is not authorized to access the requested fields."
+            )
 
-        # Create the request
-        request = {
-            "sender": self.name,
-            "receiver": "AgentB",
-            "customer_id": customer_id,
-            "requested_fields": requested_fields,
-            "purpose": purpose
-        }
+        minimization_result = check_data_minimization(
+            request.purpose,
+            request.requested_fields
+        )
 
-        print(f"{self.name} sending request to AgentB:")
+        if not minimization_result["valid"]:
+            return AgentResponse(
+                status="data_minimization_violation",
+                data={
+                    "unnecessary_fields": minimization_result[
+                        "unnecessary_fields"
+                    ],
+                    "token_analysis": token_analysis
+                },
+                message=minimization_result["message"]
+            )
+
+        print(f"\n{self.name} sending request to AgentB:")
         print(request)
 
-        # Send request to Agent B
-        response = self.data_agent.handle_request(request)
+        response = self.communication.send_request(request)
+
+        response.data["token_analysis"] = token_analysis
 
         return response

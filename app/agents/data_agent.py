@@ -1,4 +1,5 @@
 from app.data.customers import customers
+from app.models.schemas import AgentResponse
 
 
 class DataAgent:
@@ -11,10 +12,11 @@ class DataAgent:
 
         # Check if customer exists
         if customer_id not in customers:
-            return {
-                "status": "error",
-                "message": "Customer not found"
-            }
+            return AgentResponse(
+                status="error",
+                data={},
+                message="Customer not found"
+            )
 
         customer = customers[customer_id]
 
@@ -25,7 +27,7 @@ class DataAgent:
             if field in customer:
                 response[field] = customer[field]
 
-        return {
-            "status": "success",
-            "data": response
-        }
+        return AgentResponse(
+            status="success",
+            data=response
+        )
