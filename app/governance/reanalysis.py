@@ -63,6 +63,11 @@ def run_single_governance_pass(
 
     minimum = None
     if enforce_policy:
+        # Explicit requests may only narrow. Only a wildcard proposes new fields;
+        # a reviewer limit remains binding even for that proposal.
+        if not any(f in WILDCARDS for f in request.requested_fields):
+            field_scope = [f for f in request.requested_fields
+                           if field_scope is None or f in field_scope]
         minimization = check_data_minimization(request.purpose, request.requested_fields)
         if request.purpose not in PURPOSE_FIELDS:
             findings.append(_finding("data_minimization", "HIGH", "UNKNOWN_PURPOSE", "",

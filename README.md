@@ -29,7 +29,7 @@ python -m unittest discover tests
 ```
 
 Install requirements before testing: the suite includes Streamlit AppTest tests.
-The current suite contains 106 tests, including the existing Governance and Person 2
+The current suite contains 109 tests, including the existing Governance and Person 2
 tests, end-to-end security tests, and six UI tests. AppTest may print a harmless
 `missing ScriptRunContext` warning outside a running Streamlit server.
 
@@ -50,8 +50,11 @@ The policy treats `*` as a proposal requiring minimization, never as permission 
 read the whole record. An explicitly forbidden field alongside `*` still blocks.
 
 The existing purpose policy deliberately does not require `name` to resolve a
-complaint. Requesting it for that purpose triggers minimization; requesting `name`
+complaint. Requesting only it for that purpose yields RESTRICT with no data; requesting `name`
 for **Contact customer** is permitted. Authorization and necessity are separate checks.
+Explicit requests can only lose fields during minimization: returned fields must also
+be in the original request. Only wildcard proposals may expand into a permitted,
+purpose-required projection; reviewer limits always remain binding.
 
 For human review, choose **Custom Request**, **Other / human review**, retain the
 default `Unspecified task` and `complaint_status`, then send. No data is returned.

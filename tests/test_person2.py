@@ -187,7 +187,7 @@ class TestSupportAgent(unittest.TestCase):
 
         self.assertEqual(
             response.status,
-            "success"
+            "restricted"
         )
 
         self.assertIn(
@@ -195,10 +195,10 @@ class TestSupportAgent(unittest.TestCase):
             response.metadata["data_minimization"]["unnecessary_fields"]
         )
 
-        self.assertEqual(set(response.data), {"customer_id", "complaint_id", "complaint_status"})
+        self.assertEqual(response.data, {})
         self.assertEqual(
             [p["decision"] for p in response.metadata["governance"]["trajectory"]],
-            ["MODIFY", "ALLOW"],
+            ["RESTRICT"],
         )
 
 
