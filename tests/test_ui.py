@@ -36,6 +36,8 @@ class TestStreamlitDemo(unittest.TestCase):
         self.assertEqual(response.metadata["token_analysis"]["status"], "high")
         self.assertTrue(any("Token efficiency warning" in w.value for w in self.app.warning))
         third = self.app.session_state["responses"][cases[2][0]]
+        self.assertEqual(third.metadata["requested_fields"], ["*"])
+        self.assertEqual([s["risk_level"] for s in third.metadata["governance"]["trajectory"]], ["MEDIUM", "LOW"])
         self.assertEqual([s["decision"] for s in third.metadata["governance"]["trajectory"]], ["MODIFY", "ALLOW"])
         self.assertEqual(set(third.data), {"customer_id", "complaint_id", "complaint_status"})
 

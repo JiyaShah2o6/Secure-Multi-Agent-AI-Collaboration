@@ -190,6 +190,8 @@ else:
     purpose, requested_fields, token_limit = config["purpose"], config["requested_fields"], config["token_limit"]
 
 st.subheader("Agent A → Governance → Agent B Request")
+if scenario != "Custom Request" and config.get("description"):
+    st.info(config["description"])
 left, middle, right = st.columns(3)
 left.write("**Customer:** " + customer_id)
 middle.write("**Purpose:** " + (purpose if purpose in PURPOSE_FIELDS else "Custom purpose (analyzed, not echoed)"))
@@ -246,10 +248,14 @@ if response is not None:
     trajectory = governance.get("trajectory", [])
     if trajectory:
         st.subheader("Analysis and Re-analysis")
+        if any(step["decision"] == "MODIFY" for step in trajectory):
+            st.info("DETECT excessive data → EXPLAIN the risk → MITIGATE with fewer fields → RE-ANALYSE → ALLOW only if safe")
         st.write(" → ".join(step["decision"] for step in trajectory))
         for step in trajectory:
             with st.expander(f"Pass {step['pass'] + 1}: {step['risk_level']} / {step['decision']}", expanded=True):
                 st.write(step["reason"])
+                if step.get("authorization") is not None:
+                    st.write("Authorization:", "Passed" if step["authorization"] else "Denied")
                 if step["findings"]:
                     st.dataframe(step["findings"], use_container_width=True, hide_index=True)
                 else:
