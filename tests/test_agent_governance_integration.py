@@ -42,10 +42,9 @@ class TestAgentGovernanceIntegration(unittest.TestCase):
         self.assertEqual(response.metadata["governance"]["decision"], "BLOCK")
 
     def test_unnecessary_data_is_modified_reanalyzed_and_projected(self):
-        response = self.send(["name"])
+        response = self.send(["name", "complaint_status"])
         self.assertEqual(response.status, "success")
-        self.assertEqual(set(response.data), {"customer_id", "complaint_id", "complaint_status"})
-        self.assertEqual(response.data["customer_id"], "C101")
+        self.assertEqual(response.data, {"complaint_status": "In Progress"})
         result = response.metadata["governance"]
         self.assertEqual([step["decision"] for step in result["trajectory"]], ["MODIFY", "ALLOW"])
         self.assertEqual(result["trajectory"][0]["risk_level"], "MEDIUM")
@@ -53,6 +52,30 @@ class TestAgentGovernanceIntegration(unittest.TestCase):
         record = self.logger.get_records_by_request_id(response.metadata["request_id"])[0]
         self.assertEqual(record.reanalysis_info["initial_decision"], "MODIFY")
         self.assertEqual(record.reanalysis_info["final_decision"], "ALLOW")
+
+    def test_explicit_name_only_cannot_add_complaint_fields(self):
+        with patch.object(self.transport.data_agent, "handle_request") as read:
+            response = self.send(["name"])
+            read.assert_not_called()
+        self.assertEqual(response.status, "restricted")
+        self.assertEqual(response.data, {})
+        self.assertEqual(response.metadata["effective_fields"], ["name"])
+        record = self.logger.get_records_by_request_id(response.metadata["request_id"])[0]
+        self.assertEqual(record.decision, "RESTRICT")
+
+    def test_appropriate_explicit_name_is_preserved(self):
+        response = self.send(["name"], purpose="Contact customer")
+        self.assertEqual(response.status, "success")
+        self.assertEqual(set(response.data), {"name"})
+
+    def test_wildcard_aliases_still_allow_safe_projection(self):
+        for wildcard in ("*", "all", "all_fields", "everything"):
+            with self.subTest(wildcard=wildcard):
+                agent = SupportAgent(AgentCommunication(audit_logger=self.logger))
+                response = agent.request_customer_data("C101", [wildcard], PURPOSE)
+                self.assertEqual(set(response.data), {"customer_id", "complaint_id", "complaint_status"})
+                self.assertEqual([p["decision"] for p in response.metadata["governance"]["trajectory"]],
+                                 ["MODIFY", "ALLOW"])
 
     def test_high_tokens_do_not_change_security_decision(self):
         response = self.send(["customer_id", "complaint_id", "complaint_status"], limit=1)
@@ -149,10 +172,10 @@ class TestAgentGovernanceIntegration(unittest.TestCase):
         def provider(request):
             calls.append(list(request.requested_fields))
             return len(calls) == 1
-        request = Request("recheck", "AgentA", "AgentB", "C101", ["name"], PURPOSE)
+        request = Request("recheck", "AgentA", "AgentB", "C101", ["*"], PURPOSE)
         result = govern_request(request, auth_provider=provider, enforce_policy=True,
                                 audit_logger=self.logger, tracker=ProbingTracker())
-        self.assertEqual(calls, [["name"], ["customer_id", "complaint_id", "complaint_status"]])
+        self.assertEqual(calls, [["*"], ["customer_id", "complaint_id", "complaint_status"]])
         self.assertEqual(result.decision, "BLOCK")
 
     def test_persisted_audit_survives_reopening(self):
@@ -160,7 +183,7 @@ class TestAgentGovernanceIntegration(unittest.TestCase):
             path = str(Path(directory) / "audit.db")
             logger = AuditLogger(path)
             agent = SupportAgent(AgentCommunication(audit_logger=logger))
-            response = agent.request_customer_data("C101", ["name"], PURPOSE)
+            response = agent.request_customer_data("C101", ["*"], PURPOSE)
             reopened = AuditLogger(path)
             record = reopened.get_records_by_request_id(response.metadata["request_id"])[0]
             self.assertEqual(record.details["effective_fields"], ["customer_id", "complaint_id", "complaint_status"])
