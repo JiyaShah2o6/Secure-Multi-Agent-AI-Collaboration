@@ -56,3 +56,11 @@ def check_data_minimization(purpose, requested_fields):
         "unnecessary_fields": [],
         "message": "Requested fields are appropriate for the purpose"
     }
+
+
+def suggest_minimum_fields(purpose, allowed_fields):
+    """Purpose-specific projection, intersected with the agent's permissions."""
+    required = PURPOSE_FIELDS.get(purpose, set())
+    order = ["customer_id", "name", "complaint_id", "complaint_status",
+             "email", "phone", "complaint_description", "bank_account"]
+    return [name for name in order if name in required and name in allowed_fields]

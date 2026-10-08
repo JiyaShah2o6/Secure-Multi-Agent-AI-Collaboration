@@ -96,6 +96,7 @@ def analyze_security(
     request: Request,
     tracker: Optional[ProbingTracker] = None,
     current_time: Optional[float] = None,
+    record_probe: bool = True,
 ) -> list[Finding]:
     findings: list[Finding] = []
     active_tracker = tracker if tracker is not None else default_probing_tracker
@@ -138,8 +139,9 @@ def analyze_security(
             )
             break
 
-    is_probing, count = active_tracker.record_and_check(
-        request.sender, current_time=current_time
+    is_probing, count = (
+        active_tracker.record_and_check(request.sender, current_time=current_time)
+        if record_probe else (False, 0)
     )
     if is_probing:
         findings.append(

@@ -2,6 +2,8 @@ import unittest
 
 from app.agents.data_agent import DataAgent
 from app.agents.support_agent import SupportAgent
+from app.agents.communication import AgentCommunication
+from app.governance.audit import AuditLogger
 from app.authorization.permissions import is_authorized
 from app.authorization.data_minimization import check_data_minimization
 from app.authorization.token_analysis import analyze_prompt
@@ -98,15 +100,11 @@ class TestTokenAnalysis(unittest.TestCase):
 class TestDataAgent(unittest.TestCase):
 
     def test_customer_data_retrieval(self):
-        agent = DataAgent()
-
-        response = agent.handle_request(
-            {
-                "customer_id": "C101",
-                "requested_fields": [
-                    "complaint_status"
-                ]
-            }
+        logger = AuditLogger(":memory:")
+        self.addCleanup(logger.close)
+        agent = SupportAgent(AgentCommunication(audit_logger=logger))
+        response = agent.request_customer_data(
+            "C101", ["complaint_status"], "Resolve customer complaint"
         )
 
         self.assertEqual(
@@ -120,15 +118,11 @@ class TestDataAgent(unittest.TestCase):
         )
 
     def test_unknown_customer(self):
-        agent = DataAgent()
-
-        response = agent.handle_request(
-            {
-                "customer_id": "C999",
-                "requested_fields": [
-                    "complaint_status"
-                ]
-            }
+        logger = AuditLogger(":memory:")
+        self.addCleanup(logger.close)
+        agent = SupportAgent(AgentCommunication(audit_logger=logger))
+        response = agent.request_customer_data(
+            "C999", ["complaint_status"], "Resolve customer complaint"
         )
 
         self.assertEqual(
@@ -140,7 +134,9 @@ class TestDataAgent(unittest.TestCase):
 class TestSupportAgent(unittest.TestCase):
 
     def setUp(self):
-        self.agent = SupportAgent()
+        logger = AuditLogger(":memory:")
+        self.addCleanup(logger.close)
+        self.agent = SupportAgent(AgentCommunication(audit_logger=logger))
 
     def test_authorized_request(self):
         response = self.agent.request_customer_data(
@@ -177,7 +173,7 @@ class TestSupportAgent(unittest.TestCase):
 
         self.assertIn(
             "bank_account",
-            response.data["unauthorized_fields"]
+            response.metadata["authorization"]["unauthorized_fields"]
         )
 
     def test_data_minimization_violation(self):
@@ -191,12 +187,18 @@ class TestSupportAgent(unittest.TestCase):
 
         self.assertEqual(
             response.status,
-            "data_minimization_violation"
+            "success"
         )
 
         self.assertIn(
             "name",
-            response.data["unnecessary_fields"]
+            response.metadata["data_minimization"]["unnecessary_fields"]
+        )
+
+        self.assertEqual(set(response.data), {"customer_id", "complaint_id", "complaint_status"})
+        self.assertEqual(
+            [p["decision"] for p in response.metadata["governance"]["trajectory"]],
+            ["MODIFY", "ALLOW"],
         )
 
 
