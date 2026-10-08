@@ -1,0 +1,6 @@
+[
+  {"name":"Scenario 1 - Authorized","purpose":"Resolve customer complaint","requested_fields":["complaint_status"],"token_limit":100,"expected_decision":"ALLOW","expected_risk":"LOW"},
+  {"name":"Scenario 2 - Unauthorized","purpose":"Resolve customer complaint","requested_fields":["bank_account"],"token_limit":100,"expected_decision":"BLOCK","expected_risk":"HIGH"},
+  {"name":"Scenario 3 - Unnecessary Data","purpose":"Resolve customer complaint","requested_fields":["name"],"token_limit":100,"expected_decision":"ALLOW","expected_risk":"LOW","expected_trajectory":["MODIFY","ALLOW"]},
+  {"name":"Scenario 4 - Token-Inefficient Request","purpose":"Resolve customer complaint","requested_fields":["customer_id","complaint_id","complaint_status"],"token_limit":10,"expected_decision":"ALLOW","expected_risk":"LOW","expected_token_status":"high"}
+]

@@ -1,4 +1,7 @@
 import sys
+import json
+import os
+from uuid import uuid4
 from pathlib import Path
 
 import streamlit as st
@@ -13,6 +16,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from app.agents.support_agent import SupportAgent
 from app.data.customers import customers
+from app.agents.communication import AgentCommunication
+from app.authorization.data_minimization import PURPOSE_FIELDS
+from app.governance.audit import AuditLogger
 
 
 st.set_page_config(
@@ -69,7 +75,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-agent = SupportAgent()
+
 
 
 # ---------------------------------------------------------
@@ -117,7 +123,9 @@ with flow2:
         '<div class="flow-box"><b>🛡️ Security Checks</b><br>'
         'Authorization<br>'
         'Data Minimization<br>'
-        'Token Analysis</div>',
+        'Confidentiality / Security<br>'
+        'Risk / Mitigation / Re-analysis<br>'
+        'Audit Logging</div>',
         unsafe_allow_html=True
     )
 
@@ -142,414 +150,147 @@ st.divider()
 # SIDEBAR CONFIGURATION
 # ---------------------------------------------------------
 
-st.sidebar.header("Request Configuration")
+st.caption("Deterministic academic prototype. Simulated agents and fake data only; no LLM/API or cost calculation.")
+scenarios = json.loads((PROJECT_ROOT / "app/data/scenarios.json").read_text(encoding="utf-8"))
+scenario_map = {item["name"]: item for item in scenarios}
+scenario = st.sidebar.selectbox("Demo Scenario", ["Custom Request", *scenario_map], key="scenario")
+customer_id = st.sidebar.selectbox("Customer", list(customers), key="customer")
 
-scenario = st.sidebar.selectbox(
-    "Demo Scenario",
-    [
-        "Custom Request",
-        "Scenario 1 - Authorized",
-        "Scenario 2 - Unauthorized",
-        "Scenario 3 - Unnecessary Data",
-        "Scenario 4 - Token-Inefficient Request"
-    ]
-)
+if "demo_session" not in st.session_state:
+    st.session_state.demo_session = str(uuid4())
+    st.session_state.agents = {}
+    st.session_state.responses = {}
 
+if st.sidebar.button("New session for this scenario"):
+    st.session_state.agents.pop(scenario, None)
+    st.session_state.responses.pop(scenario, None)
 
-customer_id = st.sidebar.selectbox(
-    "Customer",
-    list(customers.keys())
-)
+if scenario not in st.session_state.agents:
+    audit_path = Path(os.environ.get(
+        "GOVERNANCE_AUDIT_PATH",
+        str(PROJECT_ROOT / ".runtime" / "audit" / (st.session_state.demo_session + ".db")),
+    ))
+    audit_path.parent.mkdir(parents=True, exist_ok=True)
+    transport = AgentCommunication(audit_logger=AuditLogger(str(audit_path)))
+    st.session_state.agents[scenario] = SupportAgent(transport)
+agent = st.session_state.agents[scenario]
+st.sidebar.caption("Each scenario has its own session. Three requests within 60 seconds trigger probing restriction; changing scenarios does not reset that scenario's history.")
 
-
-purpose_options = [
-    "Resolve customer complaint",
-    "Contact customer",
-    "Process payment/refund"
-]
-
-
-# ---------------------------------------------------------
-# SCENARIO CONFIGURATION
-# ---------------------------------------------------------
-
-if scenario == "Scenario 1 - Authorized":
-
-    purpose = "Resolve customer complaint"
-
-    requested_fields = [
-        "complaint_status"
-    ]
-
-    token_limit = 100
-
-
-elif scenario == "Scenario 2 - Unauthorized":
-
-    purpose = "Resolve customer complaint"
-
-    requested_fields = [
-        "bank_account"
-    ]
-
-    token_limit = 100
-
-
-elif scenario == "Scenario 3 - Unnecessary Data":
-
-    purpose = "Resolve customer complaint"
-
-    requested_fields = [
-        "name"
-    ]
-
-    token_limit = 100
-
-
-elif scenario == "Scenario 4 - Token-Inefficient Request":
-
-    purpose = "Resolve customer complaint"
-
-    # All three fields are authorized for Agent A
-    # and necessary for this purpose.
-    requested_fields = [
-        "customer_id",
-        "complaint_id",
-        "complaint_status"
-    ]
-
-    # Lower limit is used only to demonstrate
-    # a token-inefficient request.
-    token_limit = 10
-
-
+available_fields = ["customer_id", "name", "email", "phone", "complaint_id", "complaint_status",
+                    "complaint_description", "address", "bank_account", "card_details", "*"]
+if scenario == "Custom Request":
+    purpose_option = st.sidebar.selectbox("Purpose", [*PURPOSE_FIELDS, "Other / human review"], key="purpose_option")
+    purpose = (st.sidebar.text_input("Describe purpose", "Unspecified task", key="custom_purpose")
+               if purpose_option == "Other / human review" else purpose_option)
+    requested_fields = st.sidebar.multiselect("Requested Fields", available_fields,
+                                              default=["complaint_status"], key="custom_fields")
+    token_limit = st.sidebar.number_input("Token Limit", min_value=1, max_value=500, value=100, key="token_limit")
 else:
+    config = scenario_map[scenario]
+    purpose, requested_fields, token_limit = config["purpose"], config["requested_fields"], config["token_limit"]
 
-    purpose = st.sidebar.selectbox(
-        "Purpose",
-        purpose_options
-    )
-
-    available_fields = [
-        "customer_id",
-        "name",
-        "email",
-        "phone",
-        "complaint_id",
-        "complaint_status",
-        "complaint_description",
-        "address",
-        "bank_account",
-        "card_details"
-    ]
-
-    requested_fields = st.sidebar.multiselect(
-        "Requested Fields",
-        available_fields,
-        default=["complaint_status"]
-    )
-
-    token_limit = st.sidebar.number_input(
-        "Token Limit",
-        min_value=1,
-        max_value=500,
-        value=100,
-        step=1
-    )
-
-
-# ---------------------------------------------------------
-# REQUEST DETAILS
-# ---------------------------------------------------------
-
-st.subheader("Agent A → Agent B Request")
-
-st.write(
-    "Agent A requests customer information from Agent B. "
-    "The request is analyzed before the information is shared."
-)
-
-
-request_col1, request_col2, request_col3 = st.columns(3)
-
-
-with request_col1:
-
-    st.markdown("**Customer ID**")
-
-    st.info(customer_id)
-
-
-with request_col2:
-
-    st.markdown("**Purpose**")
-
-    st.info(purpose)
-
-
-with request_col3:
-
-    st.markdown("**Requested Fields**")
-
-    if requested_fields:
-
-        st.info(
-            ", ".join(requested_fields)
-        )
-
-    else:
-
-        st.warning(
-            "No fields selected"
-        )
-
-
+st.subheader("Agent A → Governance → Agent B Request")
+left, middle, right = st.columns(3)
+left.write("**Customer:** " + customer_id)
+middle.write("**Purpose:** " + (purpose if purpose in PURPOSE_FIELDS else "Custom purpose (analyzed, not echoed)"))
+right.write("**Requested fields:** " + ", ".join(requested_fields))
 if scenario == "Scenario 4 - Token-Inefficient Request":
+    st.info("A deliberately low token limit demonstrates an efficiency warning. It does not increase security risk.")
 
-    st.info(
-        "This scenario uses only authorized and necessary fields "
-        "but intentionally demonstrates high token usage."
-    )
-
-
-# ---------------------------------------------------------
-# SEND REQUEST
-# ---------------------------------------------------------
-
-if st.button(
-    "🚀 Send Request",
-    type="primary",
-    use_container_width=True
-):
-
+if st.button("Send Request", type="primary", key="send"):
     if not requested_fields:
-
-        st.warning(
-            "Please select at least one field."
-        )
-
+        st.warning("Please select at least one field.")
     else:
-
-        response = agent.request_customer_data(
-            customer_id=customer_id,
-            requested_fields=requested_fields,
-            purpose=purpose,
-            token_limit=token_limit
+        st.session_state.responses[scenario] = agent.request_customer_data(
+            customer_id, requested_fields, purpose, token_limit=token_limit,
         )
 
-
-        st.divider()
-
-        st.subheader(
-            "Security Analysis Result"
+response = st.session_state.responses.get(scenario)
+if response is not None and response.status == "human_review":
+    st.subheader("Human Review")
+    st.warning("No data has been retrieved. This is a local demo reviewer, not an authenticated supervisor system.")
+    st.caption("Confirm a supported purpose. Approve and Restrict re-run all checks; forbidden fields and hostile requests cannot be overridden.")
+    action = st.selectbox("Review action", ["Approve", "Restrict", "Reject"], key="review_action")
+    review_purpose = st.selectbox("Confirmed purpose", list(PURPOSE_FIELDS), key="review_purpose")
+    review_fields = response.metadata.get("requested_fields", [])
+    if action == "Restrict":
+        review_fields = st.multiselect("Keep only these fields", review_fields,
+                                       default=review_fields, key="review_fields")
+    if st.button("Apply review action", key="review_submit"):
+        reviewed = agent.communication.review_request(
+            response.metadata["request_id"], action, purpose=review_purpose, fields=review_fields,
         )
+        reviewed.metadata["token_analysis"] = response.metadata.get("token_analysis", {})
+        st.session_state.responses[scenario] = reviewed
+        st.rerun()
 
+response = st.session_state.responses.get(scenario)
+if response is not None:
+    st.divider()
+    st.subheader("Governance Result")
+    metadata = response.metadata
+    governance = metadata.get("governance", {})
+    if response.status == "success":
+        st.success("ALLOW — approved request processed")
+    elif response.status in {"blocked", "unauthorized", "error"}:
+        st.error(response.message or "Request withheld")
+    else:
+        st.warning(response.message or response.status)
+    st.caption("Request ID: " + metadata.get("request_id", "unavailable"))
+    cols = st.columns(3)
+    cols[0].metric("Final risk", governance.get("risk_level", "Unavailable"))
+    cols[1].metric("Decision", governance.get("decision", "ERROR"))
+    cols[2].metric("Data returned", "Yes" if response.data else "No")
+    st.write(governance.get("reason", response.message))
 
-        # -------------------------------------------------
-        # REQUEST STATUS
-        # -------------------------------------------------
+    trajectory = governance.get("trajectory", [])
+    if trajectory:
+        st.subheader("Analysis and Re-analysis")
+        st.write(" → ".join(step["decision"] for step in trajectory))
+        for step in trajectory:
+            with st.expander(f"Pass {step['pass'] + 1}: {step['risk_level']} / {step['decision']}", expanded=True):
+                st.write(step["reason"])
+                if step["findings"]:
+                    st.dataframe(step["findings"], use_container_width=True, hide_index=True)
+                else:
+                    st.write("No findings.")
+                if step.get("modified_fields"):
+                    st.write("Proposed fields: " + ", ".join(step["modified_fields"]))
 
-        if response.status == "success":
+    st.subheader("Authorization and Data Minimization")
+    initial_auth = metadata.get("authorization", {})
+    minimum = metadata.get("data_minimization", {})
+    st.write("Original field permissions:", initial_auth)
+    st.write("Original purpose check:", minimum)
+    st.write("Effective fields:", metadata.get("effective_fields", []))
+    if "*" in metadata.get("requested_fields", []):
+        st.caption("Wildcard is a projection proposal. Only permitted, purpose-required concrete fields can proceed after re-analysis.")
 
-            st.success(
-                "🟢 Request Allowed"
-            )
-
-        elif response.status == "unauthorized":
-
-            st.error(
-                "🔴 Request Unauthorized"
-            )
-
-        elif response.status == "data_minimization_violation":
-
-            st.warning(
-                "🟡 Data Minimization Violation"
-            )
-
+    token = metadata.get("token_analysis", {})
+    if token:
+        st.subheader("Token Efficiency")
+        cols = st.columns(3)
+        cols[0].metric("Estimated tokens", token.get("token_count", 0))
+        cols[1].metric("Recommended limit", token.get("token_limit", 0))
+        cols[2].metric("Efficiency", token.get("status", "unknown").upper())
+        if token.get("status") == "high":
+            st.warning("Token efficiency warning: " + token.get("suggestion", "Reduce unnecessary content."))
         else:
-
-            st.info(
-                response.status
-            )
-
-
-        if response.message:
-
-            st.write(
-                response.message
-            )
-
-
-        # -------------------------------------------------
-        # TOKEN ANALYSIS
-        # -------------------------------------------------
-
-        token_analysis = response.data.get(
-            "token_analysis"
-        )
-
-
-        if token_analysis:
-
-            st.subheader(
-                "Token Usage Analysis"
-            )
-
-
-            col1, col2, col3 = st.columns(3)
-
-
-            with col1:
-
-                st.metric(
-                    "Estimated Tokens",
-                    token_analysis["token_count"]
-                )
-
-
-            with col2:
-
-                st.metric(
-                    "Recommended Limit",
-                    token_analysis["token_limit"]
-                )
-
-
-            with col3:
-
-                status = token_analysis["status"].title()
-
-                st.metric(
-                    "Efficiency",
-                    status
-                )
-
-
-            if token_analysis["status"] == "efficient":
-
-                st.success(
-                    token_analysis["message"]
-                )
-
-
-            elif token_analysis["status"] == "high":
-
-                st.warning(
-                    token_analysis["message"]
-                )
-
-                st.info(
-                    token_analysis["suggestion"]
-                )
-
-
-            else:
-
-                st.info(
-                    token_analysis["message"]
-                )
-
-
-        # -------------------------------------------------
-        # AUTHORIZATION ANALYSIS
-        # -------------------------------------------------
-
-        if response.status == "unauthorized":
-
-            unauthorized_fields = response.data.get(
-                "unauthorized_fields",
-                []
-            )
-
-
-            if unauthorized_fields:
-
-                st.subheader(
-                    "Authorization Analysis"
-                )
-
-
-                st.error(
-                    "The following fields are not authorized "
-                    "for Agent A:"
-                )
-
-
-                for field in unauthorized_fields:
-
-                    st.write(
-                        f"❌ `{field}`"
-                    )
-
-
-        # -------------------------------------------------
-        # DATA MINIMIZATION ANALYSIS
-        # -------------------------------------------------
-
-        if response.status == "data_minimization_violation":
-
-            unnecessary_fields = response.data.get(
-                "unnecessary_fields",
-                []
-            )
-
-
-            if unnecessary_fields:
-
-                st.subheader(
-                    "Data Minimization Analysis"
-                )
-
-
-                st.warning(
-                    "The following fields are not necessary "
-                    "for the selected purpose:"
-                )
-
-
-                for field in unnecessary_fields:
-
-                    st.write(
-                        f"⚠️ `{field}`"
-                    )
-
-
-        # -------------------------------------------------
-        # AGENT B RESPONSE
-        # -------------------------------------------------
-
-        if response.status == "success":
-
-            st.subheader(
-                "Agent B Response"
-            )
-
-
-            response_data = {
-                key: value
-                for key, value in response.data.items()
-                if key != "token_analysis"
-            }
-
-
-            if response_data:
-
-                st.json(
-                    response_data
-                )
-
-            else:
-
-                st.info(
-                    "Agent B did not return any data."
-                )
-
+            st.info(token.get("message", ""))
+        st.caption("Word-count approximation; not an exact tokenizer and not a cost calculator.")
+
+    st.subheader("Agent B Response")
+    if response.status == "success":
+        st.json(response.data)
+    else:
+        st.info("No customer data released.")
+    with st.expander("Audit trail for this request"):
+        try:
+            from dataclasses import asdict
+            records = agent.communication.audit_logger.get_records_by_request_id(metadata.get("request_id", ""))
+            st.json([asdict(record) for record in records])
+        except Exception:
+            st.error("Audit storage is unavailable.")
 
 st.divider()
-
-
-st.caption(
-    "Prototype: Secure Multi-Agent AI Collaboration | "
-    "Agent A → Security Checks → Agent B"
-)
+st.caption("Governance is the central decision-maker. Response monitoring checks field projection only; full response-content analysis is future work.")
