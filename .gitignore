@@ -1,23 +1,40 @@
 # Python cache
 __pycache__/
 *.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
 
-# Virtual environment
+# Virtual environments
 venv/
 .venv/
+env/
 
-# Environment variables
+# Environment variables and local secrets
 .env
+*.env
+.env.*
 
 # IDE
 .vscode/
+.idea/
 
 # Streamlit
 .streamlit/
 
-# Local audit records and test/runtime artifacts
+# Local databases and SQLite journals
 *.db
+*.sqlite
+*.sqlite3
 *.db-journal
 *.db-wal
 *.db-shm
+
+# Generated logs
+*.log
+logs/
+
+# Local test artifacts and runtime directories
+.coverage
+htmlcov/
 .runtime/

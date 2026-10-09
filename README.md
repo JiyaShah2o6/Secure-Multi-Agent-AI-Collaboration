@@ -12,6 +12,7 @@ Use Python 3.12 (the tested version) from the repository root. On Windows PowerS
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe scripts/seed_database.py
 .\.venv\Scripts\python.exe -m unittest discover tests
 .\.venv\Scripts\python.exe main.py
 .\.venv\Scripts\python.exe -m streamlit run app/ui/streamlit_app.py --server.address=127.0.0.1 --browser.gatherUsageStats=false
@@ -28,9 +29,17 @@ The reproducible full test command, inside the chosen Python environment, is:
 python -m unittest discover tests
 ```
 
+To run the reproducible quantitative evaluation benchmark (42 structured scenarios, confusion matrix, and latency profile):
+
+```text
+python scripts/run_evaluation.py
+```
+
 Install requirements before testing: the suite includes Streamlit AppTest tests.
-The current suite contains 109 tests, including the existing Governance and Person 2
-tests, end-to-end security tests, and six UI tests. AppTest may print a harmless
+The test suite contains 161 automated tests, including the Phase 1 governance suite
+(18 tests), Phase 2 database & repository suite (13 tests), Phase 3 UI suite (12 tests),
+Phase 4 evaluation suite (2 tests covering 42 scenarios), Phase 4 E2E security suite (13 tests),
+and existing Governance, Person 2, and regression tests. AppTest may print a harmless
 `missing ScriptRunContext` warning outside a running Streamlit server.
 
 ## Five-minute demonstration
@@ -71,19 +80,39 @@ RESTRICT, even if their fields are otherwise safe. Use **New session for this
 scenario** when beginning another demonstration. Internal re-analysis passes do
 not count as additional external requests.
 
+## Governance Console & Theme Architecture
+
+The user interface is structured as an enterprise security console with persistent top navigation across 7 functional destinations and built-in Light and Dark themes:
+
+- **Theme Control**: Accessible in the top header via a single-click symbol toggle button (`🌙` in Light mode to switch to Dark; `☀️` in Dark mode to switch to Light). The theme toggle switches instantaneously without dropdown menus, page reloads, or unintended request submissions. The active theme preference persists across page navigation in session state and across browser refreshes via URL query parameters (`?theme=Light|Dark`).
+- **Comprehensive Palette**:
+  - *Light Mode*: Soft slate canvas (`#f8fafc`), clean white surfaces, dark charcoal headings, accessible status badges, and subtle borders.
+  - *Dark Mode*: Deep slate/charcoal canvas (`#0b0f19`), elevated slate surfaces (`#1e293b`), off-white typography (`#f8fafc`), dark-mode table cards, and high-contrast status badges.
+- **Top Navigation (7 Destinations)**:
+  1. **Overview**: Live audit database statistics (total, allowed, blocked, human review), simplified architecture flow (`Agent A → Governance → Agent B`), recent governance activity log, and collapsible sequential pipeline technical details.
+  2. **Request Console**: Structured workspace to formulate agent requests, inspect multi-pass analysis trajectories, risk scores, data minimization projections, and approved single-use token data retrieval.
+  3. **Human Review**: Dedicated reviewer decision console displaying strictly decision-critical metadata (requested fields, sensitivity tiers, escalation findings, confirmed purpose, field scope) with confirmation safeguards before applying actions (Approve, Restrict, Modify, Reject).
+  4. **Audit Trail**: Real-time audit log explorer with multi-criteria filtering (request ID search, decision, risk level) and masked sensitive values.
+  5. **Confidentiality**: Field sensitivity categorization explorer (Internal, Confidential, Restricted, Unknown) grounded directly in the backend policy engine.
+  6. **Security Analysis**: Interactive prompt security test bench evaluating input text against deterministic threat detectors (injection patterns, system prompt extraction, privilege escalations).
+  7. **Token Monitor**: Token efficiency estimator and budget evaluator with optimization guidance, strictly isolated from security authorization logic.
+
 ## Architecture and existing work
 
 ```text
 SupportAgent → AgentCommunication → govern_request(enforce_policy=True)
   → existing permissions → confidentiality/security → risk → mitigation
   → bounded re-analysis / human review → SQLite policy audit
-  → one-use approval → DataAgent → synthetic fields → execution audit → response
+  → one-use approval → DataAgent → CustomerRepository (parameterized SQL)
+  → synthetic database fields → execution audit → response
 ```
 
 - `app/authorization/permissions.py` remains the single permission policy.
 - `app/authorization/data_minimization.py` supplies purpose rules and permitted projections.
 - `app/governance/` provides findings, risk, mitigation, re-analysis and audit.
 - `app/agents/communication.py` connects both contributors' components and gates reads.
+- `app/data/customer_repository.py` provides the persistent SQL repository with foreign keys, indexes, parameterized SQL, and column allowlists.
+- `app/data/seed.py` and `scripts/seed_database.py` provide deterministic, repeat-safe seeding for 100 synthetic customer records across `customers`, `complaints`, and `financial_records`.
 - All five schema classes remain available: `AgentRequest`, `AgentResponse`,
   `Request`, `Finding`, and `GovernanceResult`.
 - Token estimates are metadata, not customer data or a security risk score.
@@ -92,11 +121,40 @@ Use `SupportAgent` / `AgentCommunication` for application requests. The original
 standalone `govern_request()` analyzer API retains its optional-authorization behavior
 for compatibility; direct application integrations must pass `enforce_policy=True`.
 
-## Audit and safe failure
+## Repository layout
 
-Streamlit stores SQLite audit files in `.runtime/audit/`; the CLI uses
-`.runtime/demo_audit.db`. These are ignored by Git. `GOVERNANCE_AUDIT_PATH` can select
-a test/demo audit file. Parent directories must be writable.
+```text
+Secure-Multi-Agent-AI-Collaboration/
+├── app/
+│   ├── agents/               # Simulated agent endpoints (SupportAgent, DataAgent, AgentCommunication)
+│   ├── authorization/        # Single-source RBAC policy (permissions.py) and data minimization
+│   ├── data/                 # SQLite repository, schema definitions, and synthetic data seeder
+│   ├── governance/           # Decision engine, confidentiality, security rules, risk, and audit logger
+│   ├── models/               # Shared dataclasses (AgentRequest, AgentResponse, Request, Finding, etc.)
+│   └── ui/                   # Streamlit Governance Console (streamlit_app.py)
+├── docs/                     # Architectural, research, methodology, and workflow documentation
+├── scripts/                  # Seeder (seed_database.py) and evaluation benchmark (run_evaluation.py)
+├── tests/                    # Unit, integration, security E2E, UI, and 42-scenario evaluation suites
+├── main.py                   # Command-line multi-scenario demonstration runner
+├── requirements.txt          # Python dependencies
+└── README.md                 # Project guide and evaluation manual
+```
+
+## Governance decision semantics
+
+The governance layer outputs one of five explicit decision outcomes:
+
+- **ALLOW**: Low risk (`LOW`). The requesting agent is authorized for all requested fields, the fields are necessary for the stated purpose, and no security patterns are violated. Retrieval proceeds.
+- **BLOCK**: High risk (`HIGH`). Triggered by unauthorized role fields, hostile prompt injection overrides, indirect exfiltration relays, SQL/path injection, or malformed input. Retrieval is denied; no protected data is accessed.
+- **MODIFY**: Medium risk (`MEDIUM`). The request is authorized in principle but requests unnecessary fields or uses a wildcard proposal (`*`). The engine scopes the request down to the permitted, purpose-required subset and initiates re-analysis.
+- **RESTRICT**: Medium risk (`MEDIUM`). The request has been minimized to an empty set (no permitted fields needed for the purpose), or repeated rapid probing exceeds the rate threshold (3 requests/60s). Retrieval is withheld.
+- **HUMAN_REVIEW**: High risk (`HIGH`) or pending review. The stated purpose is uncatalogued or requires operational human supervisor approval. Customer data is withheld until an authorized reviewer approves, restricts, or rejects the request.
+
+## Database architecture, audit, and safe failure
+
+Customer data and audit records are strictly isolated into separate SQLite databases:
+- **Customer database**: Stored at `.runtime/customers.db` (or configurable via `CUSTOMER_DB_PATH`). Consists of `customers`, `complaints` (with FK referencing `customers` and index), and `financial_records` (with FK referencing `customers` and index). `DataAgent` queries through `CustomerRepository` using parameterized SQL and column allowlists.
+- **Audit database**: Stored in `.runtime/audit/` (Streamlit) or `.runtime/demo_audit.db` (CLI, or via `GOVERNANCE_AUDIT_PATH`). Manages append-only policy logs, execution events, and failure logs. Both files are excluded from Git. Parent directories must be writable.
 
 Records contain request ID, UTC timestamp, agents, structured original request,
 authorization, findings, risk, mitigation, re-analysis trajectory, human action and

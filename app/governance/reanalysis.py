@@ -7,7 +7,11 @@ from typing import Callable, Final, Optional
 from app.authorization.data_minimization import (
     PURPOSE_FIELDS, check_data_minimization, suggest_minimum_fields,
 )
-from app.authorization.permissions import get_allowed_fields, is_authorized as check_permission
+from app.authorization.permissions import (
+    evaluate_request_authorization,
+    get_allowed_fields,
+    is_authorized as check_permission,
+)
 from app.governance.audit import AuditLogger, default_audit_logger
 from app.governance.confidentiality import analyze_confidentiality
 from app.governance.mitigation import determine_mitigation
@@ -19,16 +23,16 @@ DEFAULT_MAX_REANALYSIS_LIMIT: Final[int] = 2
 WILDCARDS = {"*", "all", "all_fields", "everything"}
 
 
-def _finding(analyzer, severity, label, evidence, explanation, action):
-    return Finding(analyzer, severity, [label], evidence, explanation, action)
+def _finding(analyzer, severity, labels, evidence, explanation, action):
+    label_list = labels if isinstance(labels, list) else [labels]
+    return Finding(analyzer, severity, label_list, evidence, explanation, action)
 
 
 def authorization_provider(request: Request) -> bool:
     """Adapt the existing permissions dictionary; wildcards are proposals, not grants."""
-    if request.sender != "AgentA" or request.receiver != "AgentB":
-        return False
     explicit = [f for f in request.requested_fields if f not in WILDCARDS]
-    return check_permission(request.sender, explicit)["authorized"] is True
+    res = evaluate_request_authorization(request.sender, request.receiver, explicit)
+    return res["authorized"] is True
 
 
 def run_single_governance_pass(
@@ -45,6 +49,7 @@ def run_single_governance_pass(
     findings = []
     provider = auth_provider or (authorization_provider if enforce_policy else None)
     authorized = is_authorized
+
     if provider is not None:
         try:
             authorized = provider(request)
@@ -52,11 +57,29 @@ def run_single_governance_pass(
                 raise ValueError("Authorization must return bool")
         except Exception:
             authorized = False
-            findings.append(_finding("authorization", "HIGH", "AUTHORIZATION_ERROR", "",
+            findings.append(_finding("authorization", "HIGH", ["AUTHORIZATION_ERROR"], "",
                                      "Authorization provider failed or returned an invalid result.", "BLOCK"))
+
     if authorized is False:
-        findings.append(_finding("authorization", "HIGH", "UNAUTHORIZED_ACCESS", "",
-                                 "Request contains forbidden fields or an invalid agent identity.", "BLOCK"))
+        # Granular distinction between invalid sender, invalid receiver, mixed, or unauthorized fields
+        explicit = [f for f in request.requested_fields if f not in WILDCARDS]
+        eval_result = evaluate_request_authorization(request.sender, request.receiver, explicit)
+
+        if not eval_result["valid_sender"]:
+            findings.append(_finding("authorization", "HIGH", ["INVALID_SENDER", "UNAUTHORIZED_ACCESS"],
+                                     request.sender, eval_result["message"], "BLOCK"))
+        elif not eval_result["valid_receiver"]:
+            findings.append(_finding("authorization", "HIGH", ["INVALID_RECEIVER", "UNAUTHORIZED_ACCESS"],
+                                     request.receiver, eval_result["message"], "BLOCK"))
+        elif eval_result["is_mixed"]:
+            findings.append(_finding("authorization", "HIGH", ["MIXED_PERMISSIONS", "UNAUTHORIZED_ACCESS"],
+                                     "", eval_result["message"], "BLOCK"))
+        elif eval_result["unauthorized_fields"]:
+            findings.append(_finding("authorization", "HIGH", ["UNAUTHORIZED_FIELD", "UNAUTHORIZED_ACCESS"],
+                                     "", eval_result["message"], "BLOCK"))
+        else:
+            findings.append(_finding("authorization", "HIGH", ["UNAUTHORIZED_ACCESS"], "",
+                                     "Request contains forbidden fields or an invalid agent identity.", "BLOCK"))
 
     findings.extend(analyze_confidentiality(request))
     findings.extend(analyze_security(request, tracker=tracker, record_probe=record_probe))
@@ -70,11 +93,11 @@ def run_single_governance_pass(
                            if field_scope is None or f in field_scope]
         minimization = check_data_minimization(request.purpose, request.requested_fields)
         if request.purpose not in PURPOSE_FIELDS:
-            findings.append(_finding("data_minimization", "HIGH", "UNKNOWN_PURPOSE", "",
+            findings.append(_finding("data_minimization", "HIGH", ["UNKNOWN_PURPOSE"], "",
                                      "Unrecognized purpose requires a human to select a supported purpose.", "REVIEW"))
         elif not minimization["valid"]:
             minimum = suggest_minimum_fields(request.purpose, get_allowed_fields(request.sender), field_scope)
-            findings.append(_finding("data_minimization", "MEDIUM", "DATA_MINIMIZATION", "",
+            findings.append(_finding("data_minimization", "MEDIUM", ["DATA_MINIMIZATION"], "",
                                      "Requested fields exceed the needs of the stated purpose.", "MODIFY"))
 
     risk = evaluate_risk(findings, is_authorized=authorized)
@@ -149,9 +172,11 @@ def govern_request(
     enforce_policy: bool = False,
     human_action: Optional[str] = None,
     field_scope: Optional[list[str]] = None,
+    max_reanalysis_limit: int = DEFAULT_MAX_REANALYSIS_LIMIT,
 ) -> GovernanceResult:
     final, history = reanalyze_request(
-        request, is_authorized, tracker=tracker, auth_provider=auth_provider,
+        request, is_authorized, max_reanalysis_limit=max_reanalysis_limit,
+        tracker=tracker, auth_provider=auth_provider,
         enforce_policy=enforce_policy, field_scope=field_scope,
     )
     final.trajectory = []

@@ -1,3 +1,23 @@
-from app.models.schemas import Finding, GovernanceResult, Request
+from app.models.schemas import (
+    AgentRequest,
+    AgentResponse,
+    ApprovalTicket,
+    Finding,
+    GovernanceResult,
+    Request,
+    ReviewItem,
+    ReviewStatus,
+    validate_request_schema,
+)
 
-__all__ = ["Request", "Finding", "GovernanceResult"]
+__all__ = [
+    "AgentRequest",
+    "AgentResponse",
+    "ApprovalTicket",
+    "Finding",
+    "GovernanceResult",
+    "Request",
+    "ReviewItem",
+    "ReviewStatus",
+    "validate_request_schema",
+]
