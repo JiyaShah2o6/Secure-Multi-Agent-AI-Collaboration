@@ -1,37 +1,11 @@
-customers = {
-    "C101": {
-        "name": "Rahul Sharma",
-        "email": "rahul@example.com",
-        "phone": "9876543210",
-        "complaint_id": "CMP101",
-        "complaint_status": "In Progress",
-        "complaint_description": "Product replacement requested",
-        "address": "Vadodara",
-        "bank_account": "XXXX-XXXX-1234",
-        "card_details": "XXXX-XXXX-5678"
-    },
+from __future__ import annotations
 
-    "C102": {
-        "name": "Priya Patel",
-        "email": "priya@example.com",
-        "phone": "9123456780",
-        "complaint_id": "CMP102",
-        "complaint_status": "Resolved",
-        "complaint_description": "Refund requested",
-        "address": "Ahmedabad",
-        "bank_account": "XXXX-XXXX-5678",
-        "card_details": "XXXX-XXXX-1234"
-    },
+from typing import Any
 
-    "C103": {
-        "name": "Aman Mehta",
-        "email": "aman@example.com",
-        "phone": "9988776655",
-        "complaint_id": "CMP103",
-        "complaint_status": "Pending",
-        "complaint_description": "Delivery issue reported",
-        "address": "Surat",
-        "bank_account": "XXXX-XXXX-9012",
-        "card_details": "XXXX-XXXX-7890"
-    }
+from app.data.seed import generate_synthetic_customers
+
+# Dictionary of all 100 deterministic synthetic customers keyed by customer_id.
+# Preserves baseline C101, C102, C103 fixtures for backwards compatibility with UI and tests.
+customers: dict[str, dict[str, Any]] = {
+    rec["customer_id"]: rec for rec in generate_synthetic_customers(100)
 }

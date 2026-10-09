@@ -69,7 +69,9 @@ class AuditLogger:
     def _get_connection(self) -> sqlite3.Connection:
         if self._memory_conn is not None:
             return self._memory_conn
-        return sqlite3.connect(self.db_path)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("PRAGMA foreign_keys = ON;")
+        return conn
 
     def _init_db(self) -> None:
         if self._initialized:
@@ -77,6 +79,7 @@ class AuditLogger:
         conn = self._get_connection()
         try:
             with conn:
+                conn.execute("PRAGMA foreign_keys = ON;")
                 conn.execute(
                     """
                     CREATE TABLE IF NOT EXISTS audit_logs (
@@ -92,6 +95,41 @@ class AuditLogger:
                         reanalysis_json TEXT,
                         details_json TEXT
                     )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS execution_logs (
+                        event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        request_id TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        returned_fields_json TEXT NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_execution_request_id
+                    ON execution_logs(request_id)
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS failure_logs (
+                        failure_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        request_id TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        error_type TEXT NOT NULL,
+                        description TEXT NOT NULL,
+                        details_json TEXT
+                    )
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE INDEX IF NOT EXISTS idx_failures_request_id
+                    ON failure_logs(request_id)
                     """
                 )
                 columns = {row[1] for row in conn.execute("PRAGMA table_info(audit_logs)")}
@@ -128,6 +166,8 @@ class AuditLogger:
             "mitigation": result.suggested_action,
             "trajectory": safe_trajectory(result.trajectory),
         }
+        if human_action:
+            details["human_action"] = human_action
         if reanalysis_info is not None:
             reanalysis_info = dict(reanalysis_info)
             if reanalysis_info.get("modified_fields") is not None:
@@ -268,11 +308,22 @@ class AuditLogger:
 
 
     def record_execution(self, request_id: str, status: str, returned_fields: list[str]) -> None:
-        """Attach retrieval outcome to the latest policy event, without storing values."""
+        """Attach retrieval outcome to policy event and append to execution event log."""
         self._init_db()
+        timestamp = datetime.now(timezone.utc).isoformat()
         conn = self._get_connection()
         try:
             with conn:
+                # 1. Append to execution event log
+                conn.execute(
+                    """
+                    INSERT INTO execution_logs (
+                        request_id, timestamp, status, returned_fields_json
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    (request_id, timestamp, status, json.dumps(safe_fields(returned_fields))),
+                )
+                # 2. Update latest policy event for backwards compatibility
                 row = conn.execute(
                     "SELECT record_id, details_json FROM audit_logs WHERE request_id = ? "
                     "ORDER BY record_id DESC LIMIT 1", (request_id,),
@@ -287,9 +338,107 @@ class AuditLogger:
             if self._memory_conn is None:
                 conn.close()
 
+    def record_failure(
+        self,
+        request_id: str,
+        error_type: str,
+        description: str,
+        details: Optional[dict[str, Any]] = None,
+    ) -> None:
+        """Append an explicit failure event to failure_logs table."""
+        self._init_db()
+        timestamp = datetime.now(timezone.utc).isoformat()
+        conn = self._get_connection()
+        try:
+            with conn:
+                conn.execute(
+                    """
+                    INSERT INTO failure_logs (
+                        request_id, timestamp, error_type, description, details_json
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        request_id,
+                        timestamp,
+                        error_type,
+                        description,
+                        json.dumps(details or {}),
+                    ),
+                )
+        finally:
+            if self._memory_conn is None:
+                conn.close()
+
+    def get_execution_logs(self, request_id: str) -> list[dict[str, Any]]:
+        self._init_db()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT event_id, request_id, timestamp, status, returned_fields_json
+                FROM execution_logs
+                WHERE request_id = ?
+                ORDER BY event_id ASC
+                """,
+                (request_id,),
+            )
+            return [
+                {
+                    "event_id": row[0],
+                    "request_id": row[1],
+                    "timestamp": row[2],
+                    "status": row[3],
+                    "returned_fields": json.loads(row[4]),
+                }
+                for row in cursor.fetchall()
+            ]
+        finally:
+            if self._memory_conn is None:
+                conn.close()
+
+    def get_failure_logs(self, request_id: str) -> list[dict[str, Any]]:
+        self._init_db()
+        conn = self._get_connection()
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT failure_id, request_id, timestamp, error_type, description, details_json
+                FROM failure_logs
+                WHERE request_id = ?
+                ORDER BY failure_id ASC
+                """,
+                (request_id,),
+            )
+            return [
+                {
+                    "failure_id": row[0],
+                    "request_id": row[1],
+                    "timestamp": row[2],
+                    "error_type": row[3],
+                    "description": row[4],
+                    "details": json.loads(row[5]) if row[5] else {},
+                }
+                for row in cursor.fetchall()
+            ]
+        finally:
+            if self._memory_conn is None:
+                conn.close()
+
     def close(self) -> None:
         if self._memory_conn is not None:
-            self._memory_conn.close()
+            try:
+                self._memory_conn.close()
+            except Exception:
+                pass
+            self._memory_conn = None
+
+    def __del__(self) -> None:
+        try:
+            self.close()
+        except Exception:
+            pass
 
 
 default_audit_logger = AuditLogger()
