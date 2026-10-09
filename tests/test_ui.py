@@ -97,5 +97,140 @@ class TestStreamlitDemo(unittest.TestCase):
         self.assertFalse(response.data)
 
 
+    def test_navigation_all_seven_destinations(self):
+        destinations = [
+            "Overview",
+            "Request Console",
+            "Human Review",
+            "Audit Trail",
+            "Confidentiality",
+            "Security Analysis",
+            "Token Monitor",
+        ]
+        for dest in destinations:
+            with self.subTest(destination=dest):
+                self.app.radio(key="top_nav").set_value(dest).run()
+                self.assertFalse(self.app.exception)
+                self.assertEqual(self.app.session_state["page"], dest)
+
+    def test_confidentiality_page_inspection(self):
+        self.app.radio(key="top_nav").set_value("Confidentiality").run()
+        self.assertFalse(self.app.exception)
+        self.app.selectbox(key="conf_field_select").select("bank_account").run()
+        self.assertFalse(self.app.exception)
+
+    def test_security_analysis_page_tester(self):
+        self.app.radio(key="top_nav").set_value("Security Analysis").run()
+        self.assertFalse(self.app.exception)
+        # Click Run Security Analyzer button
+        self.app.button(key="run_sec_test").click().run()
+        self.assertFalse(self.app.exception)
+
+    def test_token_monitor_page_simulation(self):
+        self.app.radio(key="top_nav").set_value("Token Monitor").run()
+        self.assertFalse(self.app.exception)
+        self.assertTrue(any("Estimated Tokens" in m.label for m in self.app.metric))
+        self.assertTrue(any(m.label == "Efficiency" for m in self.app.metric))
+
+    def test_human_review_queue_display(self):
+        # 1. Trigger human review from Request Console
+        self.app.radio(key="top_nav").set_value("Request Console").run()
+        self.app.selectbox(key="purpose_option").select("Other / human review").run()
+        self.app.button(key="send").click().run()
+        self.assertEqual(self.app.session_state["responses"]["Custom Request"].status, "human_review")
+
+        # 2. Navigate to Human Review page
+        self.app.radio(key="top_nav").set_value("Human Review").run()
+        self.assertFalse(self.app.exception)
+        # Verify page renders pending queue
+        self.assertTrue(any("Total requests pending review" in str(getattr(t, "value", "")) for t in self.app.markdown))
+
+    def test_audit_trail_page_filtering(self):
+        # Run a request to ensure audit records exist
+        self.send("Scenario 1 - Authorized")
+        self.app.radio(key="top_nav").set_value("Audit Trail").run()
+        self.assertFalse(self.app.exception)
+        self.assertTrue(len(self.app.dataframe) > 0)
+
+    def test_theme_switcher_modes_and_persistence(self):
+        # Initial theme defaults to Light
+        self.assertEqual(self.app.session_state["theme_mode"], "Light")
+        initial_responses_count = len(self.app.session_state["responses"])
+
+        # Click theme toggle button to switch to Dark
+        self.app.button(key="theme_toggle").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["theme_mode"], "Dark")
+
+        # Verify switching theme did NOT execute or submit any request
+        self.assertEqual(len(self.app.session_state["responses"]), initial_responses_count)
+
+        # Navigate across pages and verify theme persists
+        self.app.radio(key="top_nav").set_value("Audit Trail").run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["theme_mode"], "Dark")
+
+        self.app.radio(key="top_nav").set_value("Human Review").run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["theme_mode"], "Dark")
+
+        # Click theme toggle button again to switch back to Light
+        self.app.button(key="theme_toggle").click().run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["theme_mode"], "Light")
+
+    def test_empty_human_review_queue_display(self):
+        # When no reviews are pending, navigate directly to Human Review
+        self.app.radio(key="top_nav").set_value("Human Review").run()
+        self.assertFalse(self.app.exception)
+        self.assertTrue(
+            any("No requests are awaiting review" in str(getattr(t, "value", ""))
+                for t in self.app.markdown)
+        )
+
+    def test_sidebar_cleanup_and_branding(self):
+        # Sidebar should contain single descriptive subtitle and no persistent architecture/probing text
+        sidebar_captions = [str(getattr(c, "value", "")) for c in self.app.sidebar.caption]
+        self.assertTrue(any("Policy enforcement for secure agent-to-agent data exchange" in c for c in sidebar_captions))
+        self.assertFalse(any("System architecture:" in c for c in sidebar_captions))
+        self.assertFalse(any("Three requests within 60 seconds" in c for c in sidebar_captions))
+
+    def test_confidentiality_matrix_accurate_authorization_labels(self):
+        self.app.radio(key="top_nav").set_value("Confidentiality").run()
+        self.assertFalse(self.app.exception)
+        # Check that table rows for bank_account and card_details are Denied, while customer_id is Allowed
+        table_df = self.app.table[0].value
+        row_dict = dict(zip(table_df["Field"], table_df["Agent A Access"]))
+        self.assertEqual(row_dict["bank_account"], "Denied")
+        self.assertEqual(row_dict["card_details"], "Denied")
+        self.assertEqual(row_dict["customer_id"], "Allowed")
+
+    def test_overview_page_content_and_navigation(self):
+        self.app.radio(key="top_nav").set_value("Overview").run()
+        self.assertFalse(self.app.exception)
+        # Check summary metric cards exist
+        self.assertTrue(any("Total Requests" in getattr(m, "label", "") for m in self.app.metric))
+        self.assertTrue(any("Pending Reviews" in getattr(m, "label", "") for m in self.app.metric))
+        # Navigate using top navigation bar
+        self.app.radio(key="top_nav").set_value("Request Console").run()
+        self.assertFalse(self.app.exception)
+        self.assertEqual(self.app.session_state["page"], "Request Console")
+
+    def test_theme_tokens_unit_checks(self):
+        from app.ui.theme import get_theme_tokens, build_theme_stylesheet
+        light = get_theme_tokens("Light")
+        dark = get_theme_tokens("Dark")
+        self.assertEqual(light.name, "Light")
+        self.assertEqual(dark.name, "Dark")
+        self.assertNotEqual(light.bg_app, dark.bg_app)
+        self.assertNotEqual(light.text_primary, dark.text_primary)
+
+        # Verify both generate valid CSS strings with non-empty length
+        css_light = build_theme_stylesheet("Light")
+        css_dark = build_theme_stylesheet("Dark")
+        self.assertIn("THEME: LIGHT", css_light)
+        self.assertIn("THEME: DARK", css_dark)
+
+
 if __name__ == "__main__":
     unittest.main()
